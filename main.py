@@ -51,7 +51,7 @@ readings_cache = {}
 CACHE_TTL = 3600
 
 async def fetch_readings_from_url(date_str: str) -> str:
-    url = f"https://azbyka.ru/biblia/days/{date_str}?json"
+    url = f"https://azbyka.ru/biblia/days/{date_str}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -59,49 +59,57 @@ async def fetch_readings_from_url(date_str: str) -> str:
         try:
             async with session.get(url, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
-                    return f"Не удалось загрузить страницу. Ссылка: {url.replace('?json', '')}"
+                    return f"Не удалось загрузить страницу. Ссылка: {url}"
                 html = await resp.text()
         except Exception:
-            return f"Ошибка загрузки. Ссылка: {url.replace('?json', '')}"
+            return f"Ошибка загрузки. Ссылка: {url}"
 
     soup = BeautifulSoup(html, 'lxml')
 
-    # Ищем все h2 (заголовки книг)
-    headers = soup.find_all('h2')
-    if not headers:
-        return f"Не найдены заголовки чтений. Ссылка: {url.replace('?json', '')}"
+    # Находим все заголовки чтений
+    title_divs = soup.find_all('div', class_='days_book-title')
+    if not title_divs:
+        return f"Не найдены заголовки чтений. Ссылка: {url}"
 
     result_parts = []
-    for i, h2 in enumerate(headers):
-        title = h2.get_text(strip=True)
-        if not title:
+    for title_div in title_divs:
+        title_text = title_div.get_text(strip=True)
+        if not title_text:
             continue
 
-        # Собираем все элементы после этого h2 до следующего h2
-        content_text = []
-        next_elem = h2.find_next_sibling()
-        while next_elem and next_elem.name != 'h2':
-            # Пропускаем элементы с мусорными классами
-            if next_elem.name == 'div':
-                classes = next_elem.get('class', [])
-                # Если это блок перевода, меню языков или служебный — пропускаем
-                if any(c in classes for c in ['langs', 'add-lang', 'number-header', 'column-header', 'numbers-header', 'parallel']):
-                    next_elem = next_elem.find_next_sibling()
-                    continue
-                # Удаляем вложенные мусорные элементы
-                for tag in next_elem.find_all(['div', 'span'], class_=['langs', 'add-lang', 'parallel', 'number-header', 'column-header', 'numbers-header']):
-                    tag.decompose()
-                text = next_elem.get_text(separator='\n', strip=True)
-                if text:
-                    content_text.append(text)
-            next_elem = next_elem.find_next_sibling()
+        # Ищем следующий div с классом tbl-content
+        content_div = title_div.find_next_sibling('div', class_='tbl-content')
+        if not content_div:
+            continue
+
+        # Удаляем лишние элементы
+        for tag in content_div.find_all(['div', 'span', 'ul'], class_=[
+            'parallel', 'number', 'numbers-header', 'column-header', 'langs', 'add-lang', 'replace-lang__panel'
+        ]):
+            tag.decompose()
+
+        # Удаляем все элементы с class, содержащим 'number-header'
+        for tag in content_div.find_all(class_=re.compile(r'number-header')):
+            tag.decompose()
+
+        # Удаляем все элементы с атрибутом data-line (номера стихов)
+        for tag in content_div.find_all(attrs={"data-line": True}):
+            tag.decompose()
+
+        # Получаем текст, заменяя <br> на переносы
+        for br in content_div.find_all('br'):
+            br.replace_with('\n')
+        content_text = content_div.get_text(separator='\n', strip=True)
+
+        # Убираем множественные переносы
+        content_text = re.sub(r'\n\s*\n', '\n\n', content_text)
 
         if content_text:
-            result_parts.append(f"*{title}*")
-            result_parts.append("\n\n".join(content_text))
+            result_parts.append(f"*{title_text}*")
+            result_parts.append(content_text)
 
     if not result_parts:
-        return f"Не удалось извлечь тексты чтений. Ссылка: {url.replace('?json', '')}"
+        return f"Не удалось извлечь тексты чтений. Ссылка: {url}"
 
     full_text = "\n\n".join(result_parts)
     if len(full_text) > 4000:

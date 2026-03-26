@@ -137,20 +137,16 @@ async def start_command(message: types.Message):
 @dp.callback_query(lambda c: c.data == "reading")
 async def reading_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    msg = await callback_query.message.edit_text("Загружаю чтения дня...")
-    try:
-        text = await fetch_readings_from_url(date_str)
-    except Exception:
-        logging.exception("Ошибка при загрузке чтений")
-        text = "Произошла ошибка при загрузке. Попробуйте позже."
+    today = datetime.now().strftime("%Y-%m-%d")
+    url = f"https://azbyka.ru/biblia/days/{today}"
+    text = (
+        f"📖 *Чтения дня на {today}*\n\n"
+        f"Вы можете прочитать Апостол и Евангелие на сегодня по ссылке:\n"
+        f"{url}\n\n"
+        f"Также на этой странице доступны ветхозаветные чтения, если они положены по уставу."
+    )
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    if len(text) > 4000:
-        await msg.delete()
-        await callback_query.message.answer(text[:4000], parse_mode="Markdown", reply_markup=back_keyboard)
-        await callback_query.message.answer(text[4000:], parse_mode="Markdown")
-    else:
-        await msg.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
+    await callback_query.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=back_keyboard)
 
 @dp.callback_query(lambda c: c.data == "prayers")
 async def prayers_menu(callback_query: types.CallbackQuery):

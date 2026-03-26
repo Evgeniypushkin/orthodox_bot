@@ -59,43 +59,55 @@ async def fetch_readings_from_url(date_str: str) -> str:
         try:
             async with session.get(url, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
-                    logging.error(f"Ошибка HTTP {resp.status} для {url}")
-                    return f"Не удалось загрузить страницу. Вы можете прочитать чтения по ссылке: {url.replace('?json', '')}"
+                    return f"Не удалось загрузить страницу. Ссылка: {url.replace('?json', '')}"
                 html = await resp.text()
-        except asyncio.TimeoutError:
-            logging.error(f"Таймаут при запросе к {url}")
-            return f"Сервер не отвечает. Попробуйте позже или перейдите по ссылке: {url.replace('?json', '')}"
         except Exception as e:
-            logging.error(f"Ошибка запроса: {e}")
-            return f"Не удалось загрузить страницу. Ссылка: {url.replace('?json', '')}"
+            return f"Ошибка загрузки. Ссылка: {url.replace('?json', '')}"
 
     soup = BeautifulSoup(html, 'lxml')
-    body = soup.find('body')
-    if not body:
-        return f"Не удалось найти содержимое страницы. Ссылка: {url.replace('?json', '')}"
+
+    # Находим все блоки чтений по классу days_book-title
+    title_divs = soup.find_all('div', class_='days_book-title')
+    if not title_divs:
+        return f"Не найдены заголовки чтений. Ссылка: {url.replace('?json', '')}"
 
     result_parts = []
-    current_title = None
-    current_text = []
+    for title_div in title_divs:
+        # Заголовок (очищаем от ссылок внутри)
+        title_text = title_div.get_text(strip=True)
 
-    for elem in body.find_all(['h2', 'div', 'p'], recursive=True):
-        if elem.name == 'h2':
-            if current_title and current_text:
-                result_parts.append(f"*{current_title}*")
-                result_parts.append("\n".join(current_text).strip())
-                current_text = []
-            current_title = elem.get_text(strip=True)
-        elif current_title:
-            text = elem.get_text(strip=True)
-            if text:
-                current_text.append(text)
+        # Ищем следующий за заголовком div с классом tbl-content
+        content_div = title_div.find_next_sibling('div', class_='tbl-content')
+        if not content_div:
+            continue
 
-    if current_title and current_text:
-        result_parts.append(f"*{current_title}*")
-        result_parts.append("\n".join(current_text).strip())
+        # Удаляем лишние элементы внутри content_div
+        for tag in content_div.find_all(['div', 'span'], class_=['langs', 'add-lang', 'parallel', 'number-header', 'column-header']):
+            tag.decompose()
+        # Удаляем все span с class="number-header__inner" и т.п.
+        for tag in content_div.find_all('div', class_='numbers-header'):
+            tag.decompose()
+        # Удаляем все кнопки "Заменить" и прочие
+        for tag in content_div.find_all(['ul', 'li'], class_=['langs', 'lang-link', 'replace-lang__panel']):
+            tag.decompose()
+
+        # Получаем текст, заменяя <br> на переносы
+        for br in content_div.find_all('br'):
+            br.replace_with('\n')
+        content_text = content_div.get_text(separator='\n', strip=True)
+
+        # Убираем множественные переносы
+        content_text = re.sub(r'\n\s*\n', '\n\n', content_text)
+
+        # Если текст пустой – пропускаем
+        if not content_text:
+            continue
+
+        result_parts.append(f"*{title_text}*")
+        result_parts.append(content_text)
 
     if not result_parts:
-        return f"Не удалось извлечь тексты чтений. Вы можете прочитать их на сайте: {url.replace('?json', '')}"
+        return f"Не удалось извлечь тексты чтений. Ссылка: {url.replace('?json', '')}"
 
     full_text = "\n\n".join(result_parts)
     if len(full_text) > 4000:

@@ -146,6 +146,45 @@ async def support_callback(callback_query: types.CallbackQuery):
     )
     await callback_query.message.answer(text, parse_mode="Markdown")
 
+from bs4 import BeautifulSoup
+
+async def fetch_prayers():
+    """
+    Возвращает словарь с утренними и вечерними молитвами.
+    """
+    url_morning = "https://azbyka.ru/molitvoslov/utrennie-molitvy.html"
+    url_evening = "https://azbyka.ru/molitvoslov/molitvy-na-son-gryadushhim.html"
+    
+    async with aiohttp.ClientSession() as session:
+        # Утренние молитвы
+        async with session.get(url_morning) as resp:
+            morning_html = await resp.text()
+        # Вечерние молитвы
+        async with session.get(url_evening) as resp:
+            evening_html = await resp.text()
+    
+    morning_soup = BeautifulSoup(morning_html, 'lxml')
+    evening_soup = BeautifulSoup(evening_html, 'lxml')
+    
+    # Ищем контент внутри тега <div class="content">
+    morning_div = morning_soup.find('div', class_='content')
+    evening_div = evening_soup.find('div', class_='content')
+    
+    # Извлекаем текст (можно использовать .get_text() для простоты)
+    morning_text = morning_div.get_text(separator='\n', strip=True) if morning_div else "Не удалось загрузить утренние молитвы"
+    evening_text = evening_div.get_text(separator='\n', strip=True) if evening_div else "Не удалось загрузить вечерние молитвы"
+    
+    # Обрезаем слишком длинные тексты (Telegram имеет ограничение 4096 символов)
+    if len(morning_text) > 2000:
+        morning_text = morning_text[:2000] + "...\n(сокращено)"
+    if len(evening_text) > 2000:
+        evening_text = evening_text[:2000] + "...\n(сокращено)"
+    
+    return {
+        "morning": morning_text,
+        "evening": evening_text
+    }
+
 # ---------- Запуск бота ----------
 async def main():
     await dp.start_polling(bot)

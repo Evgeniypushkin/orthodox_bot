@@ -33,7 +33,8 @@ def load_prayer(file_name):
     with open(f"data/{file_name}", "r", encoding="utf-8") as f:
         return f.read()
 
-readings_data = load_readings()
+# readings_data = load_readings()   # можно закомментировать
+readings_data = {}  # временно
 calendar_data = load_calendar()
 morning_prayers = load_prayer("morning_prayers.txt")
 evening_prayers = load_prayer("evening_prayers.txt")
@@ -127,32 +128,15 @@ async def reading_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
     today = datetime.now()
     date_str = today.strftime("%Y-%m-%d")
-
-    # Проверяем, есть ли данные для этой даты
-    if date_str not in readings_data:
-        await callback_query.message.edit_text(
-            "На сегодня чтений в базе нет.\n"
-            "Возможно, это особый день (например, Светлая седмица).\n"
-            "Пожалуйста, зайдите позже.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-        )
-        return
-
-    source_url = readings_data[date_str].get("source")
-    if not source_url:
-        await callback_query.message.edit_text(
-            "Для сегодняшнего дня ссылка на чтения отсутствует.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-        )
-        return
-
+    # Формируем ссылку самостоятельно
+    source_url = f"https://azbyka.ru/biblia/days/{date_str}"
+    
     # Показываем "Загрузка..."
     msg = await callback_query.message.edit_text("Загружаю чтения дня...")
-
+    
     text = await fetch_readings_from_url(source_url)
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-
-    # Если текст слишком длинный, отправляем отдельными сообщениями
+    
     if len(text) > 4000:
         await msg.delete()
         await callback_query.message.answer(text[:4000], parse_mode="Markdown", reply_markup=back_keyboard)

@@ -58,42 +58,39 @@ prayers_menu_keyboard = InlineKeyboardMarkup(
 
 # ---------- Парсинг страницы azbyka.ru ----------
 async def fetch_readings_from_url(url: str) -> str:
-    """
-    Загружает страницу с azbyka.ru и извлекает тексты
-    всех апостольских и евангельских чтений.
-    Возвращает отформатированный текст.
-    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get(url) as resp:
+            async with session.get(url, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
                     logging.error(f"Ошибка HTTP {resp.status} для {url}")
                     return "Не удалось загрузить страницу."
                 html = await resp.text()
+        except asyncio.TimeoutError:
+            logging.error(f"Таймаут при запросе к {url}")
+            return "Сервер не отвечает. Попробуйте позже."
         except Exception as e:
             logging.error(f"Ошибка запроса: {e}")
             return "Не удалось загрузить страницу."
 
     soup = BeautifulSoup(html, 'lxml')
-    # Ищем все блоки с чтениями – они обычно в <div class="reading">
     reading_blocks = soup.find_all('div', class_='reading')
     if not reading_blocks:
-        # альтернативный вариант: блоки с классом "bible-reading"
         reading_blocks = soup.find_all('div', class_='bible-reading')
-
     if not reading_blocks:
+        logging.warning(f"Не найдены блоки чтений на странице {url}")
         return "Не удалось найти тексты чтений на странице."
 
     result_parts = []
     for block in reading_blocks:
-        # Ищем заголовок (обычно <h3> или <div class="reading-title">)
         title_tag = block.find('h3') or block.find('div', class_='reading-title')
         if title_tag:
             title = title_tag.get_text(strip=True)
             result_parts.append(f"*{title}*")
         else:
             result_parts.append("*Чтение*")
-        # Ищем текст чтения (обычно в <p> или в <div class="reading-text">)
         text_block = block.find('div', class_='reading-text') or block
         paragraphs = text_block.find_all('p')
         if paragraphs:
@@ -101,41 +98,31 @@ async def fetch_readings_from_url(url: str) -> str:
         else:
             text = text_block.get_text(strip=True)
         result_parts.append(text)
-        result_parts.append("")  # разделитель
+        result_parts.append("")
 
-    if not result_parts:
-        return "Не удалось извлечь тексты."
+    full_text = "\n\n".join(result_parts).strip()
+    if not full_text:
+        return "Не удалось извлечь тексты чтений."
 
-    # Объединяем всё
-    full_text = "\n\n".join(result_parts)
-    # Обрезаем, если очень длинное
     if len(full_text) > 4000:
-        # Оставляем первые 4000 символов и добавляем предупреждение
         full_text = full_text[:4000] + "\n\n...(текст сокращён, полную версию смотрите по ссылке)"
     return full_text
-
-# ---------- Обработчики ----------
-@dp.message(Command("start"))
-async def start_command(message: types.Message):
-    await message.answer(
-        "🛐 Спутник верующего\nВыберите раздел:",
-        reply_markup=main_menu_keyboard
-    )
 
 @dp.callback_query(lambda c: c.data == "reading")
 async def reading_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
     today = datetime.now()
     date_str = today.strftime("%Y-%m-%d")
-    # Формируем ссылку самостоятельно
     source_url = f"https://azbyka.ru/biblia/days/{date_str}"
     
-    # Показываем "Загрузка..."
     msg = await callback_query.message.edit_text("Загружаю чтения дня...")
+    try:
+        text = await fetch_readings_from_url(source_url)
+    except Exception as e:
+        logging.exception("Ошибка при загрузке чтений")
+        text = "Произошла ошибка при загрузке. Пожалуйста, попробуйте позже."
     
-    text = await fetch_readings_from_url(source_url)
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    
     if len(text) > 4000:
         await msg.delete()
         await callback_query.message.answer(text[:4000], parse_mode="Markdown", reply_markup=back_keyboard)

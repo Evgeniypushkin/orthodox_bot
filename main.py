@@ -46,17 +46,16 @@ def get_prayer_list(cat_id):
         if cat["id"] == cat_id:
             keyboard = []
             for prayer in cat["prayers"]:
-                keyboard.append([InlineKeyboardButton(text=prayer["title"], callback_data=f"prayer_{cat_id}_{prayer['title']}")])
+                keyboard.append([InlineKeyboardButton(text=prayer["title"], callback_data=f"prayer_{prayer['id']}")])
             keyboard.append([InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")])
             return InlineKeyboardMarkup(inline_keyboard=keyboard)
     return None
 
-def get_prayer_text(cat_id, prayer_title):
+def get_prayer_text(prayer_id):
     for cat in prayers_data["categories"]:
-        if cat["id"] == cat_id:
-            for prayer in cat["prayers"]:
-                if prayer["title"] == prayer_title:
-                    return prayer["text"]
+        for prayer in cat["prayers"]:
+            if prayer["id"] == prayer_id:
+                return prayer["text"]
     return "Молитва не найдена."
 
 # ---------- Обработчики ----------
@@ -105,13 +104,20 @@ async def prayer_category_callback(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("prayer_"))
 async def prayer_text_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    parts = callback_query.data.split("_")
-    cat_id = parts[1]
-    prayer_title = "_".join(parts[2:])  # на случай, если в названии есть подчеркивания
-    text = get_prayer_text(cat_id, prayer_title)
+    prayer_id = callback_query.data.split("_", 1)[1]
+    # Найдём категорию, чтобы кнопка "Назад" возвращала в список категории
+    cat_id = None
+    for cat in prayers_data["categories"]:
+        for prayer in cat["prayers"]:
+            if prayer["id"] == prayer_id:
+                cat_id = cat["id"]
+                break
+        if cat_id:
+            break
+    text = get_prayer_text(prayer_id)
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data=f"prayer_cat_{cat_id}")]])
     await callback_query.message.edit_text(
-        f"*{prayer_title}*\n\n{text}",
+        f"*{prayer['title']}*\n\n{text}",
         parse_mode="Markdown",
         reply_markup=back_keyboard
     )

@@ -43,12 +43,27 @@ async def fetch_prayers():
     morning_soup = BeautifulSoup(morning_html, 'lxml')
     evening_soup = BeautifulSoup(evening_html, 'lxml')
     
-    morning_div = morning_soup.find('div', class_='content')
-    evening_div = evening_soup.find('div', class_='content')
+    # Пробуем разные возможные селекторы
+    morning_div = morning_soup.find('div', class_='text') or morning_soup.find('div', class_='content')
+    evening_div = evening_soup.find('div', class_='text') or evening_soup.find('div', class_='content')
     
-    morning_text = morning_div.get_text(separator='\n', strip=True) if morning_div else "Не удалось загрузить утренние молитвы"
-    evening_text = evening_div.get_text(separator='\n', strip=True) if evening_div else "Не удалось загрузить вечерние молитвы"
+    if not morning_div:
+        # Если не нашли контент — загружаем текст из другого источника
+        morning_text = "Не удалось загрузить утренние молитвы. Пожалуйста, зайдите позже."
+    else:
+        # Удаляем лишние элементы (например, рекламу, ссылки)
+        for tag in morning_div.find_all(['script', 'style', 'iframe', 'ins']):
+            tag.decompose()
+        morning_text = morning_div.get_text(separator='\n', strip=True)
     
+    if not evening_div:
+        evening_text = "Не удалось загрузить вечерние молитвы. Пожалуйста, зайдите позже."
+    else:
+        for tag in evening_div.find_all(['script', 'style', 'iframe', 'ins']):
+            tag.decompose()
+        evening_text = evening_div.get_text(separator='\n', strip=True)
+    
+    # Обрезаем слишком длинные тексты
     if len(morning_text) > 2000:
         morning_text = morning_text[:2000] + "...\n(сокращено)"
     if len(evening_text) > 2000:
@@ -82,21 +97,31 @@ async def reading_callback(callback_query: types.CallbackQuery):
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(url) as resp:
+                if resp.status != 200:
+                    logging.error(f"API вернул статус {resp.status}")
+                    await callback_query.message.answer("Сервер временно недоступен. Попробуйте позже.")
+                    return
                 data = await resp.json()
+                logging.info(f"Получены данные: {data}")
         except Exception as e:
             logging.error(f"Ошибка при запросе к API: {e}")
             await callback_query.message.answer("Не удалось загрузить данные. Попробуйте позже.")
             return
 
-    if data and len(data) > 0:
+    if data and isinstance(data, list) and len(data) > 0:
+        # Берём первого святого в списке
         saint = data[0]
         name = saint.get("name", "Святой")
         life = saint.get("life", "Описание временно недоступно")
+        # Иногда в жизни могут быть HTML-теги — убираем
+        import re
+        life = re.sub(r'<[^>]+>', '', life)
         if len(life) > 1500:
             life = life[:1500] + "..."
         text = f"📖 *{name}*\n\n{life}"
     else:
-        text = "Данные о святом сегодня недоступны. Загляните позже."
+        # Если святых нет — пробуем вывести краткую информацию о дне
+        text = "Сегодня нет житий святых. Возможно, это праздник. Попробуйте раздел «Календарь»."
     
     await callback_query.message.answer(text, parse_mode="Markdown")
 

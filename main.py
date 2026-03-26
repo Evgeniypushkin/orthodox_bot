@@ -65,7 +65,7 @@ main_menu_keyboard = InlineKeyboardMarkup(
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
     await message.answer(
-        "🛐 МОЛИТВОСЛОВ\nВыберите раздел:",
+        "🛐 МОЛИТВОСЛОВ\nГлавное меню:",
         reply_markup=main_menu_keyboard
     )
 

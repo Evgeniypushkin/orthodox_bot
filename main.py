@@ -64,7 +64,6 @@ def get_prayer_text(prayer_id):
 @dp.callback_query(lambda c: c.data == "confession_prepare")
 async def confession_menu(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    # Клавиатура для подготовки к исповеди
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Перечень грехов", callback_data="confession_sins")],
         [InlineKeyboardButton(text="📖 Как исповедоваться", callback_data="confession_instruction")],
@@ -80,12 +79,15 @@ async def confession_menu(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "confession_sins")
 async def confession_sins(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    # Загружаем данные
-    with open("data/confession.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-    # Создаём клавиатуру с категориями грехов
+    try:
+        with open("data/confession.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logging.error(f"Ошибка загрузки confession.json: {e}")
+        await callback_query.message.edit_text("Не удалось загрузить данные. Попробуйте позже.")
+        return
     keyboard = []
-    for cat in data["categories"]:
+    for cat in data.get("categories", []):
         keyboard.append([InlineKeyboardButton(text=cat["name"], callback_data=f"sins_cat_{cat['id']}")])
     keyboard.append([InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")])
     await callback_query.message.edit_text(
@@ -96,15 +98,20 @@ async def confession_sins(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("sins_cat_"))
 async def sins_category(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    cat_id = callback_query.data.split("_")[2]
-    with open("data/confession.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-    category = next((c for c in data["categories"] if c["id"] == cat_id), None)
-    if not category:
-        await callback_query.message.edit_text("Категория не найдена.")
+    cat_id = callback_query.data.split("_", 2)[2]  # sins_cat_against_god -> against_god
+    try:
+        with open("data/confession.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logging.error(f"Ошибка загрузки confession.json: {e}")
+        await callback_query.message.edit_text("Не удалось загрузить данные. Попробуйте позже.")
         return
-    sins_text = "*" + category["name"] + "*\n\n"
-    for sin in category["sins"]:
+    category = next((c for c in data.get("categories", []) if c.get("id") == cat_id), None)
+    if not category:
+        await callback_query.message.edit_text(f"Категория с id='{cat_id}' не найдена.")
+        return
+    sins_text = f"*{category['name']}*\n\n"
+    for sin in category.get("sins", []):
         sins_text += f"• {sin}\n"
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_sins")]])
     await callback_query.message.edit_text(sins_text, parse_mode="Markdown", reply_markup=back_keyboard)
@@ -112,24 +119,35 @@ async def sins_category(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "confession_instruction")
 async def confession_instruction(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    with open("data/confession.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-    instruction = data["instruction"]
+    try:
+        with open("data/confession.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logging.error(f"Ошибка загрузки confession.json: {e}")
+        await callback_query.message.edit_text("Не удалось загрузить данные. Попробуйте позже.")
+        return
+    instruction = data.get("instruction", "Инструкция временно недоступна.")
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")]])
     await callback_query.message.edit_text(instruction, parse_mode="Markdown", reply_markup=back_keyboard)
 
 @dp.callback_query(lambda c: c.data == "confession_prayers")
 async def confession_prayers(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    with open("data/confession.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-    # Можно показать список молитв (если их несколько) или сразу текст
-    prayers = data["prayers"]
-    if len(prayers) == 1:
+    try:
+        with open("data/confession.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logging.error(f"Ошибка загрузки confession.json: {e}")
+        await callback_query.message.edit_text("Не удалось загрузить данные. Попробуйте позже.")
+        return
+    prayers = data.get("prayers", [])
+    if not prayers:
+        text = "Молитвы временно отсутствуют."
+    elif len(prayers) == 1:
         text = f"*{prayers[0]['title']}*\n\n{prayers[0]['text']}"
     else:
-        # Если несколько, можно сделать подменю, но пока просто первую
-        text = f"*{prayers[0]['title']}*\n\n{prayers[0]['text']}"
+        # Для нескольких молитв можно показать первую (или сделать подменю)
+        text = f"*{prayers[0]['title']}*\n\n{prayers[0]['text']}\n\n---\n\nДругие молитвы будут добавлены позже."
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")]])
     await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
 

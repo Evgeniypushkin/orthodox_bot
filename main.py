@@ -51,11 +51,7 @@ readings_cache = {}
 CACHE_TTL = 3600
 
 async def fetch_readings_from_url(date_str: str) -> str:
-    """
-    Парсит страницу days.pravoslavie.ru/readings/YYYY-MM-DD.html
-    и возвращает тексты Апостола и Евангелия.
-    """
-    url = f"https://days.pravoslavie.ru/readings/{date_str}.html"
+    url = f"https://azbyka.ru/biblia/days/{date_str}?json"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -64,44 +60,44 @@ async def fetch_readings_from_url(date_str: str) -> str:
             async with session.get(url, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
                     logging.error(f"Ошибка HTTP {resp.status} для {url}")
-                    return f"Не удалось загрузить страницу. Вы можете прочитать чтения по ссылке: {url}"
+                    return f"Не удалось загрузить страницу. Вы можете прочитать чтения по ссылке: {url.replace('?json', '')}"
                 html = await resp.text()
         except asyncio.TimeoutError:
             logging.error(f"Таймаут при запросе к {url}")
-            return f"Сервер не отвечает. Попробуйте позже или перейдите по ссылке: {url}"
+            return f"Сервер не отвечает. Попробуйте позже или перейдите по ссылке: {url.replace('?json', '')}"
         except Exception as e:
             logging.error(f"Ошибка запроса: {e}")
-            return f"Не удалось загрузить страницу. Ссылка: {url}"
+            return f"Не удалось загрузить страницу. Ссылка: {url.replace('?json', '')}"
 
     soup = BeautifulSoup(html, 'lxml')
+    body = soup.find('body')
+    if not body:
+        return f"Не удалось найти содержимое страницы. Ссылка: {url.replace('?json', '')}"
 
-    # Ищем блоки чтений
-    apostle_div = soup.find('div', class_='reading-apostle')
-    gospel_div = soup.find('div', class_='reading-gospel')
+    result_parts = []
+    current_title = None
+    current_text = []
 
-    parts = []
-    if apostle_div:
-        # Извлекаем текст, убирая лишние переводы строк
-        apostle_text = apostle_div.get_text(separator='\n', strip=True)
-        parts.append("*Апостол*")
-        parts.append(apostle_text)
-    if gospel_div:
-        gospel_text = gospel_div.get_text(separator='\n', strip=True)
-        parts.append("*Евангелие*")
-        parts.append(gospel_text)
+    for elem in body.find_all(['h2', 'div', 'p'], recursive=True):
+        if elem.name == 'h2':
+            if current_title and current_text:
+                result_parts.append(f"*{current_title}*")
+                result_parts.append("\n".join(current_text).strip())
+                current_text = []
+            current_title = elem.get_text(strip=True)
+        elif current_title:
+            text = elem.get_text(strip=True)
+            if text:
+                current_text.append(text)
 
-    if not parts:
-        # Возможно, есть только ветхозаветные чтения
-        # Пробуем найти любой блок с классом 'reading'
-        any_reading = soup.find('div', class_='reading')
-        if any_reading:
-            text = any_reading.get_text(separator='\n', strip=True)
-            parts.append("*Чтения дня*")
-            parts.append(text)
-        else:
-            return f"Не удалось извлечь тексты чтений. Вы можете прочитать их на сайте: {url}"
+    if current_title and current_text:
+        result_parts.append(f"*{current_title}*")
+        result_parts.append("\n".join(current_text).strip())
 
-    full_text = "\n\n".join(parts).strip()
+    if not result_parts:
+        return f"Не удалось извлечь тексты чтений. Вы можете прочитать их на сайте: {url.replace('?json', '')}"
+
+    full_text = "\n\n".join(result_parts)
     if len(full_text) > 4000:
         full_text = full_text[:4000] + "\n\n...(текст сокращён, полную версию смотрите по ссылке)"
     return full_text
@@ -130,7 +126,7 @@ async def reading_callback(callback_query: types.CallbackQuery):
     date_str = datetime.now().strftime("%Y-%m-%d")
     msg = await callback_query.message.edit_text("Загружаю чтения дня...")
     try:
-        text = await fetch_readings_from_url(date_str)  # передаём дату
+        text = await fetch_readings_from_url(date_str)
     except Exception:
         logging.exception("Ошибка при загрузке чтений")
         text = "Произошла ошибка при загрузке. Попробуйте позже."

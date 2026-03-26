@@ -80,16 +80,17 @@ async def reading_callback(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "prayers")
 async def prayers_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    # Пока статические тексты
+    
+    # Показываем "Загрузка..."
+    msg = await callback_query.message.answer("🙏 Загружаю молитвы, подождите...")
+    
+    prayers = await fetch_prayers()
+    
     text = (
-        "🙏 *Утренние молитвы*\n\n"
-        "Господи, благослови день сей…\n\n"
-        "🙏 *Вечерние молитвы*\n\n"
-        "Господи, прости согрешения мои…\n\n"
-        "📖 *Полный текст молитв* будет добавлен позже.\n"
-        "Вы можете поделиться своими пожеланиями в комментариях к боту."
+        f"🙏 *Утренние молитвы*\n\n{prayers['morning']}\n\n"
+        f"🙏 *Вечерние молитвы*\n\n{prayers['evening']}"
     )
-    await callback_query.message.answer(text, parse_mode="Markdown")
+    await msg.edit_text(text, parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "calendar")
 async def calendar_callback(callback_query: types.CallbackQuery):

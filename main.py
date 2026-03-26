@@ -6,12 +6,12 @@ from datetime import datetime
 import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Токен бота из переменной окружения (установим на Railway)
+# Токен бота из переменной окружения
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("Не задан TELEGRAM_BOT_TOKEN")
@@ -19,98 +19,106 @@ if not BOT_TOKEN:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ---------- Клавиатура ----------
-keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="📖 Чтения дня")],
-        [KeyboardButton(text="🙏 Молитвы")],
-        [KeyboardButton(text="📅 Календарь")],
-        [KeyboardButton(text="🏛️ Храмы")],
-        [KeyboardButton(text="💝 Поддержать")],
-    ],
-    resize_keyboard=True
+# ---------- Inline-клавиатура (главное меню) ----------
+main_menu_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="📖 Чтения дня", callback_data="reading")],
+        [InlineKeyboardButton(text="🙏 Молитвы", callback_data="prayers")],
+        [InlineKeyboardButton(text="📅 Календарь", callback_data="calendar")],
+        [InlineKeyboardButton(text="🏛️ Храмы", callback_data="temples")],
+        [InlineKeyboardButton(text="💝 Поддержать", callback_data="support")],
+    ]
 )
 
 # ---------- Обработчики ----------
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    await message.answer(
+    # Приветственное сообщение
+    welcome_text = (
         "Добро пожаловать в «Спутник верующего»!\n\n"
         "Я помогаю православным христианам:\n"
         "• Читать жития святых и Священное Писание\n"
         "• Следить за церковным календарём\n"
         "• Находить молитвы\n"
-        "• Поддерживать храмы\n\n"
-        "Выберите раздел в меню:",
-        reply_markup=keyboard
+        "• Поддерживать храмы"
+    )
+    await message.answer(welcome_text)
+    
+    # Отдельное сообщение с главным меню
+    await message.answer(
+        "🛐 Спутник верующего\nВыберите раздел:",
+        reply_markup=main_menu_keyboard
     )
 
-@dp.message(lambda m: m.text == "📖 Чтения дня")
-async def reading_of_day(message: types.Message):
+@dp.callback_query(lambda c: c.data == "reading")
+async def reading_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()  # убираем "часики"
     today = datetime.now().strftime("%Y-%m-%d")
     url = f"https://azbyka.ru/days/api/saints/{today}/group.json"
-
+    
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(url) as resp:
                 data = await resp.json()
         except Exception as e:
             logging.error(f"Ошибка при запросе к API: {e}")
-            await message.answer("Не удалось загрузить данные. Попробуйте позже.")
+            await callback_query.message.answer("Не удалось загрузить данные. Попробуйте позже.")
             return
 
     if data and len(data) > 0:
         saint = data[0]
         name = saint.get("name", "Святой")
         life = saint.get("life", "Описание временно недоступно")
-        # Обрезаем длинный текст
         if len(life) > 1500:
             life = life[:1500] + "..."
         text = f"📖 *{name}*\n\n{life}"
     else:
         text = "Данные о святом сегодня недоступны. Загляните позже."
+    
+    await callback_query.message.answer(text, parse_mode="Markdown")
 
-    await message.answer(text, parse_mode="Markdown")
-
-@dp.message(lambda m: m.text == "🙏 Молитвы")
-async def prayers(message: types.Message):
+@dp.callback_query(lambda c: c.data == "prayers")
+async def prayers_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    # Пока статические тексты
     text = (
         "🙏 *Утренние молитвы*\n\n"
-        "Господи, благослови день сей...\n\n"
+        "Господи, благослови день сей…\n\n"
         "🙏 *Вечерние молитвы*\n\n"
-        "Господи, прости согрешения мои...\n\n"
+        "Господи, прости согрешения мои…\n\n"
         "📖 *Полный текст молитв* будет добавлен позже.\n"
         "Вы можете поделиться своими пожеланиями в комментариях к боту."
     )
-    await message.answer(text, parse_mode="Markdown")
+    await callback_query.message.answer(text, parse_mode="Markdown")
 
-@dp.message(lambda m: m.text == "📅 Календарь")
-async def calendar(message: types.Message):
+@dp.callback_query(lambda c: c.data == "calendar")
+async def calendar_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
     today = datetime.now().strftime("%Y-%m-%d")
     url = f"https://azbyka.ru/days/api/presentations/{today}.json"
-
+    
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(url) as resp:
                 data = await resp.json()
         except Exception:
-            await message.answer("Не удалось загрузить календарь. Попробуйте позже.")
+            await callback_query.message.answer("Не удалось загрузить календарь. Попробуйте позже.")
             return
 
     if data and "presentations" in data and data["presentations"]:
         html = data["presentations"][0]
-        # Убираем HTML‑теги для упрощённого отображения
         import re
         text = re.sub(r'<[^>]+>', '', html)
         if len(text) > 1000:
             text = text[:1000] + "..."
     else:
         text = "Информация о праздниках сегодня недоступна."
+    
+    await callback_query.message.answer(f"📅 *{today}*\n\n{text}", parse_mode="Markdown")
 
-    await message.answer(f"📅 *{today}*\n\n{text}", parse_mode="Markdown")
-
-@dp.message(lambda m: m.text == "🏛️ Храмы")
-async def temples(message: types.Message):
+@dp.callback_query(lambda c: c.data == "temples")
+async def temples_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
     text = (
         "🏛️ *Храмы, нуждающиеся в поддержке:*\n\n"
         "**Храм Николая Чудотворца**\n"
@@ -122,10 +130,11 @@ async def temples(message: types.Message):
         "⚠️ *Важно:* Пожертвования направляются напрямую храмам. "
         "Мы не принимаем и не обрабатываем платежи."
     )
-    await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
+    await callback_query.message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
 
-@dp.message(lambda m: m.text == "💝 Поддержать")
-async def support_developer(message: types.Message):
+@dp.callback_query(lambda c: c.data == "support")
+async def support_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
     text = (
         "💝 *Поддержка разработчика*\n\n"
         "Этот бот создаётся и поддерживается добровольцем. "
@@ -135,11 +144,10 @@ async def support_developer(message: types.Message):
         "Все средства пойдут на развитие бота, хостинг и обновления. "
         "Спасибо за вашу поддержку!"
     )
-    await message.answer(text, parse_mode="Markdown")
+    await callback_query.message.answer(text, parse_mode="Markdown")
 
 # ---------- Запуск бота ----------
 async def main():
-    # Используем polling (проще для Railway)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

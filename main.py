@@ -44,17 +44,8 @@ main_menu_keyboard = InlineKeyboardMarkup(
 # ---------- Обработчики ----------
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    welcome_text = (
-        "Добро пожаловать в «Спутник верующего»!\n\n"
-        "Я помогаю православным христианам:\n"
-        "• Читать жития святых и Священное Писание\n"
-        "• Следить за церковным календарём\n"
-        "• Находить молитвы\n"
-        "• Поддерживать храмы"
-    )
-    await message.answer(welcome_text)
     await message.answer(
-        "🛐 Спутник верующего\nВыберите раздел:",
+        "🛐 Выберите раздел:",
         reply_markup=main_menu_keyboard
     )
 

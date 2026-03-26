@@ -69,49 +69,44 @@ async def fetch_readings_from_url(url: str) -> str:
             return f"Не удалось загрузить страницу. Ссылка: {url}"
 
     soup = BeautifulSoup(html, 'lxml')
-    # Найдём основную область с чтениями – часто это div с классом 'entry-content' или 'content'
-    main_content = soup.find('div', class_='entry-content') or soup.find('div', class_='content')
-    if not main_content:
-        main_content = soup
 
-    # Ищем заголовки, которые начинают блоки чтений
-    headers = main_content.find_all(['h2', 'h3', 'h4'])
-    # Ключевые слова для чтений (можно расширять)
-    reading_keywords = ['Апостол', 'Евангелие', 'Книга', 'Бытие', 'Исход', 'Притчей', 'Исаии', 'Послание']
-    reading_blocks = []
-    for i, header in enumerate(headers):
-        header_text = header.get_text(strip=True)
-        if any(keyword in header_text for keyword in reading_keywords):
-            # Собираем все элементы после этого заголовка до следующего заголовка
-            block_elements = []
-            next_element = header.find_next_sibling()
-            while next_element:
-                if next_element.name in ['h2', 'h3', 'h4']:
-                    break
-                block_elements.append(next_element)
-                next_element = next_element.find_next_sibling()
-            if block_elements:
-                reading_blocks.append((header_text, block_elements))
-
-    if not reading_blocks:
-        logging.warning(f"Не найдены блоки чтений на странице {url}")
+    # Ищем все заголовки чтений
+    title_divs = soup.find_all('div', class_='days_book-title')
+    if not title_divs:
+        logging.warning(f"Не найдены заголовки чтений на странице {url}")
         return f"Не удалось автоматически извлечь тексты. Пожалуйста, перейдите по ссылке и прочитайте чтения: {url}"
 
     result_parts = []
-    for title, elements in reading_blocks:
+    for title_div in title_divs:
+        # Извлекаем текст заголовка (например, "Книга пророка Исаии")
+        title = title_div.get_text(strip=True)
+        if not title:
+            continue
+
+        # Ищем следующий после заголовка div с классом tbl-content
+        content_div = title_div.find_next_sibling('div', class_='tbl-content')
+        if not content_div:
+            # Может быть, контент в другом месте? Пропускаем
+            continue
+
+        # Извлекаем текст из content_div
+        # Внутри могут быть строки с числами (стихами), но нас интересует полный текст
+        # Просто берём весь текст, убирая лишние переносы
+        text = content_div.get_text(separator='\n', strip=True)
+        # Чистим от множественных переносов
+        text = re.sub(r'\n\s*\n', '\n\n', text)
+
+        if not text:
+            continue
+
         result_parts.append(f"*{title}*")
-        # Объединяем текст всех элементов блока
-        block_text = []
-        for elem in elements:
-            text = elem.get_text(strip=True)
-            if text:
-                block_text.append(text)
-        # Соединяем параграфы двойным переносом
-        full_block_text = "\n\n".join(block_text)
-        result_parts.append(full_block_text)
-        result_parts.append("")  # разделитель между блоками
+        result_parts.append(text)
+        result_parts.append("")  # разделитель
 
     full_text = "\n\n".join(result_parts).strip()
+    if not full_text:
+        return f"Не удалось извлечь тексты чтений. Вы можете прочитать их на сайте: {url}"
+
     if len(full_text) > 4000:
         full_text = full_text[:4000] + "\n\n...(текст сокращён, полную версию смотрите по ссылке)"
     return full_text

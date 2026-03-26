@@ -1,13 +1,12 @@
 import os
 import asyncio
 import logging
+import json
 from datetime import datetime
 
-import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from bs4 import BeautifulSoup
 
 logging.basicConfig(level=logging.INFO)
 
@@ -17,6 +16,19 @@ if not BOT_TOKEN:
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# ---------- Загружаем локальные данные ----------
+def load_lives():
+    with open("data/lives.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def load_prayer(file_name):
+    with open(f"data/{file_name}", "r", encoding="utf-8") as f:
+        return f.read()
+
+lives_data = load_lives()
+morning_prayers = load_prayer("morning_prayers.txt")
+evening_prayers = load_prayer("evening_prayers.txt")
 
 # ---------- Inline-клавиатура ----------
 main_menu_keyboard = InlineKeyboardMarkup(
@@ -29,128 +41,68 @@ main_menu_keyboard = InlineKeyboardMarkup(
     ]
 )
 
-# ---------- Парсинг молитв ----------
-async def fetch_prayers():
-    url_morning = "https://azbyka.ru/molitvoslov/utrennie-molitvy.html"
-    url_evening = "https://azbyka.ru/molitvoslov/molitvy-na-son-gryadushhim.html"
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url_morning) as resp:
-            morning_html = await resp.text()
-        async with session.get(url_evening) as resp:
-            evening_html = await resp.text()
-    
-    morning_soup = BeautifulSoup(morning_html, 'lxml')
-    evening_soup = BeautifulSoup(evening_html, 'lxml')
-    
-    # Пробуем разные возможные селекторы
-    morning_div = morning_soup.find('div', class_='text') or morning_soup.find('div', class_='content')
-    evening_div = evening_soup.find('div', class_='text') or evening_soup.find('div', class_='content')
-    
-    if not morning_div:
-        # Если не нашли контент — загружаем текст из другого источника
-        morning_text = "Не удалось загрузить утренние молитвы. Пожалуйста, зайдите позже."
-    else:
-        # Удаляем лишние элементы (например, рекламу, ссылки)
-        for tag in morning_div.find_all(['script', 'style', 'iframe', 'ins']):
-            tag.decompose()
-        morning_text = morning_div.get_text(separator='\n', strip=True)
-    
-    if not evening_div:
-        evening_text = "Не удалось загрузить вечерние молитвы. Пожалуйста, зайдите позже."
-    else:
-        for tag in evening_div.find_all(['script', 'style', 'iframe', 'ins']):
-            tag.decompose()
-        evening_text = evening_div.get_text(separator='\n', strip=True)
-    
-    # Обрезаем слишком длинные тексты
-    if len(morning_text) > 2000:
-        morning_text = morning_text[:2000] + "...\n(сокращено)"
-    if len(evening_text) > 2000:
-        evening_text = evening_text[:2000] + "...\n(сокращено)"
-    
-    return {"morning": morning_text, "evening": evening_text}
-
 # ---------- Обработчики ----------
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
+    welcome_text = (
+        "Добро пожаловать в «Спутник верующего»!\n\n"
+        "Я помогаю православным христианам:\n"
+        "• Читать жития святых и Священное Писание\n"
+        "• Следить за церковным календарём\n"
+        "• Находить молитвы\n"
+        "• Поддерживать храмы"
+    )
+    await message.answer(welcome_text)
     await message.answer(
-        "🛐 Спутник верующего",
+        "🛐 Спутник верующего\nВыберите раздел:",
         reply_markup=main_menu_keyboard
     )
 
 @dp.callback_query(lambda c: c.data == "reading")
 async def reading_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    today = datetime.now().strftime("%Y-%m-%d")
-    url = f"https://azbyka.ru/days/api/saints/{today}/group.json"
+    today = datetime.now()
+    day = today.day
+    month = today.month
+    key = f"{day:02d}-{month:02d}"
     
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    logging.error(f"API вернул статус {resp.status}")
-                    await callback_query.message.answer("Сервер временно недоступен. Попробуйте позже.")
-                    return
-                data = await resp.json()
-                logging.info(f"Получены данные: {data}")
-        except Exception as e:
-            logging.error(f"Ошибка при запросе к API: {e}")
-            await callback_query.message.answer("Не удалось загрузить данные. Попробуйте позже.")
-            return
-
-    if data and isinstance(data, list) and len(data) > 0:
-        # Берём первого святого в списке
-        saint = data[0]
-        name = saint.get("name", "Святой")
-        life = saint.get("life", "Описание временно недоступно")
-        # Иногда в жизни могут быть HTML-теги — убираем
-        import re
-        life = re.sub(r'<[^>]+>', '', life)
-        if len(life) > 1500:
-            life = life[:1500] + "..."
-        text = f"📖 *{name}*\n\n{life}"
+    if key in lives_data:
+        saints = lives_data[key]
+        text_parts = []
+        for saint in saints:
+            name = saint.get("name", "Святой")
+            life = saint.get("life", "Описание временно недоступно")
+            if len(life) > 1500:
+                life = life[:1500] + "..."
+            text_parts.append(f"📖 *{name}*\n\n{life}")
+        text = "\n\n---\n\n".join(text_parts)
     else:
-        # Если святых нет — пробуем вывести краткую информацию о дне
-        text = "Сегодня нет житий святых. Возможно, это праздник. Попробуйте раздел «Календарь»."
+        text = "На сегодня житий святых в базе нет. Загляните позже."
     
     await callback_query.message.answer(text, parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "prayers")
 async def prayers_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    msg = await callback_query.message.answer("🙏 Загружаю молитвы, подождите...")
-    prayers = await fetch_prayers()
     text = (
-        f"🙏 *Утренние молитвы*\n\n{prayers['morning']}\n\n"
-        f"🙏 *Вечерние молитвы*\n\n{prayers['evening']}"
+        f"🙏 *Утренние молитвы*\n\n{morning_prayers}\n\n"
+        f"🙏 *Вечерние молитвы*\n\n{evening_prayers}"
     )
-    await msg.edit_text(text, parse_mode="Markdown")
+    if len(text) > 4000:
+        await callback_query.message.answer(f"🙏 *Утренние молитвы*\n\n{morning_prayers}", parse_mode="Markdown")
+        await callback_query.message.answer(f"🙏 *Вечерние молитвы*\n\n{evening_prayers}", parse_mode="Markdown")
+    else:
+        await callback_query.message.answer(text, parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "calendar")
 async def calendar_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    today = datetime.now().strftime("%Y-%m-%d")
-    url = f"https://azbyka.ru/days/api/presentations/{today}.json"
-    
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(url) as resp:
-                data = await resp.json()
-        except Exception:
-            await callback_query.message.answer("Не удалось загрузить календарь. Попробуйте позже.")
-            return
-
-    if data and "presentations" in data and data["presentations"]:
-        html = data["presentations"][0]
-        import re
-        text = re.sub(r'<[^>]+>', '', html)
-        if len(text) > 1000:
-            text = text[:1000] + "..."
-    else:
-        text = "Информация о праздниках сегодня недоступна."
-    
-    await callback_query.message.answer(f"📅 *{today}*\n\n{text}", parse_mode="Markdown")
+    text = (
+        "📅 *Православный календарь*\n\n"
+        "Подробный календарь с праздниками и постами будет добавлен позже.\n"
+        "Пока вы можете воспользоваться разделом «Чтения дня» для знакомства с житиями святых."
+    )
+    await callback_query.message.answer(text, parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "temples")
 async def temples_callback(callback_query: types.CallbackQuery):
@@ -168,7 +120,7 @@ async def temples_callback(callback_query: types.CallbackQuery):
     )
     await callback_query.message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
 
-@dp.callback_query(lambda c: c.data == "https://t.me/evgeniy_pushkin")
+@dp.callback_query(lambda c: c.data == "support")
 async def support_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
     text = (

@@ -69,7 +69,7 @@ async def start_command(message: types.Message):
     )
     await message.answer(welcome_text)
     await message.answer(
-        "🛐 Спутник верующего\nВыберите раздел:",
+        "🛐 Спутник верующего",
         reply_markup=main_menu_keyboard
     )
 

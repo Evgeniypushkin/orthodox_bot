@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-import time
+import json
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
@@ -18,12 +18,11 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ---------- Загрузка молитв ----------
-def load_prayer(file_name):
-    with open(f"data/{file_name}", "r", encoding="utf-8") as f:
-        return f.read()
+def load_prayers():
+    with open("data/prayers.json", "r", encoding="utf-8") as f:
+        return json.load(f)
 
-morning_prayers = load_prayer("morning_prayers.txt")
-evening_prayers = load_prayer("evening_prayers.txt")
+prayers_data = load_prayers()
 
 # ---------- Клавиатуры ----------
 main_menu_keyboard = InlineKeyboardMarkup(
@@ -35,93 +34,30 @@ main_menu_keyboard = InlineKeyboardMarkup(
     ]
 )
 
-prayers_menu_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="🙏 Утренние молитвы", callback_data="morning_prayers")],
-        [InlineKeyboardButton(text="🌙 Вечерние молитвы", callback_data="evening_prayers")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
-    ]
-)
+def get_prayers_menu():
+    keyboard = []
+    for cat in prayers_data["categories"]:
+        keyboard.append([InlineKeyboardButton(text=cat["name"], callback_data=f"prayer_cat_{cat['id']}")])
+    keyboard.append([InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-# ---------- Кэш для чтений дня (на 1 час) ----------
-readings_cache = {}
-CACHE_TTL = 3600
+def get_prayer_list(cat_id):
+    for cat in prayers_data["categories"]:
+        if cat["id"] == cat_id:
+            keyboard = []
+            for prayer in cat["prayers"]:
+                keyboard.append([InlineKeyboardButton(text=prayer["title"], callback_data=f"prayer_{cat_id}_{prayer['title']}")])
+            keyboard.append([InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")])
+            return InlineKeyboardMarkup(inline_keyboard=keyboard)
+    return None
 
-async def fetch_readings_from_url(date_str: str) -> str:
-    url = f"https://azbyka.ru/biblia/days/{date_str}"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(url, headers=headers, timeout=10) as resp:
-                if resp.status != 200:
-                    return f"Не удалось загрузить страницу. Ссылка: {url}"
-                html = await resp.text()
-        except Exception:
-            return f"Ошибка загрузки. Ссылка: {url}"
-
-    soup = BeautifulSoup(html, 'lxml')
-
-    # Находим все заголовки чтений
-    title_divs = soup.find_all('div', class_='days_book-title')
-    if not title_divs:
-        return f"Не найдены заголовки чтений. Ссылка: {url}"
-
-    result_parts = []
-    for title_div in title_divs:
-        title_text = title_div.get_text(strip=True)
-        if not title_text:
-            continue
-
-        # Ищем следующий div с классом tbl-content
-        content_div = title_div.find_next_sibling('div', class_='tbl-content')
-        if not content_div:
-            continue
-
-        # Удаляем лишние элементы
-        for tag in content_div.find_all(['div', 'span', 'ul'], class_=[
-            'parallel', 'number', 'numbers-header', 'column-header', 'langs', 'add-lang', 'replace-lang__panel'
-        ]):
-            tag.decompose()
-
-        # Удаляем все элементы с class, содержащим 'number-header'
-        for tag in content_div.find_all(class_=re.compile(r'number-header')):
-            tag.decompose()
-
-        # Удаляем все элементы с атрибутом data-line (номера стихов)
-        for tag in content_div.find_all(attrs={"data-line": True}):
-            tag.decompose()
-
-        # Получаем текст, заменяя <br> на переносы
-        for br in content_div.find_all('br'):
-            br.replace_with('\n')
-        content_text = content_div.get_text(separator='\n', strip=True)
-
-        # Убираем множественные переносы
-        content_text = re.sub(r'\n\s*\n', '\n\n', content_text)
-
-        if content_text:
-            result_parts.append(f"*{title_text}*")
-            result_parts.append(content_text)
-
-    if not result_parts:
-        return f"Не удалось извлечь тексты чтений. Ссылка: {url}"
-
-    full_text = "\n\n".join(result_parts)
-    if len(full_text) > 4000:
-        full_text = full_text[:4000] + "\n\n...(текст сокращён, полную версию смотрите по ссылке)"
-    return full_text
-
-async def get_reading_text(date_str: str) -> str:
-    if date_str in readings_cache:
-        cached_text, timestamp = readings_cache[date_str]
-        if time.time() - timestamp < CACHE_TTL:
-            return cached_text
-    url = f"https://azbyka.ru/biblia/days/{date_str}"
-    text = await fetch_readings_from_url(url)
-    readings_cache[date_str] = (text, time.time())
-    return text
+def get_prayer_text(cat_id, prayer_title):
+    for cat in prayers_data["categories"]:
+        if cat["id"] == cat_id:
+            for prayer in cat["prayers"]:
+                if prayer["title"] == prayer_title:
+                    return prayer["text"]
+    return "Молитва не найдена."
 
 # ---------- Обработчики ----------
 @dp.message(Command("start"))
@@ -149,31 +85,36 @@ async def reading_callback(callback_query: types.CallbackQuery):
 async def prayers_menu(callback_query: types.CallbackQuery):
     await callback_query.answer()
     await callback_query.message.edit_text(
-        "Выберите молитвы:",
-        reply_markup=prayers_menu_keyboard
+        "Выберите категорию молитв:",
+        reply_markup=get_prayers_menu()
     )
 
-@dp.callback_query(lambda c: c.data == "morning_prayers")
-async def morning_prayers_callback(callback_query: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data.startswith("prayer_cat_"))
+async def prayer_category_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    text = f"🙏 *Утренние молитвы*\n\n{morning_prayers}"
-    back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
-    if len(text) > 4000:
-        await callback_query.message.edit_text(text[:4000] + "...", parse_mode="Markdown", reply_markup=back)
-        await callback_query.message.answer(text[4000:], parse_mode="Markdown")
+    cat_id = callback_query.data.split("_")[2]
+    keyboard = get_prayer_list(cat_id)
+    if keyboard:
+        await callback_query.message.edit_text(
+            "Выберите молитву:",
+            reply_markup=keyboard
+        )
     else:
-        await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back)
+        await callback_query.message.edit_text("Категория не найдена.")
 
-@dp.callback_query(lambda c: c.data == "evening_prayers")
-async def evening_prayers_callback(callback_query: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data.startswith("prayer_"))
+async def prayer_text_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    text = f"🙏 *Вечерние молитвы*\n\n{evening_prayers}"
-    back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
-    if len(text) > 4000:
-        await callback_query.message.edit_text(text[:4000] + "...", parse_mode="Markdown", reply_markup=back)
-        await callback_query.message.answer(text[4000:], parse_mode="Markdown")
-    else:
-        await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back)
+    parts = callback_query.data.split("_")
+    cat_id = parts[1]
+    prayer_title = "_".join(parts[2:])  # на случай, если в названии есть подчеркивания
+    text = get_prayer_text(cat_id, prayer_title)
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data=f"prayer_cat_{cat_id}")]])
+    await callback_query.message.edit_text(
+        f"*{prayer_title}*\n\n{text}",
+        parse_mode="Markdown",
+        reply_markup=back_keyboard
+    )
 
 @dp.callback_query(lambda c: c.data == "back_to_main")
 async def back_to_main(callback_query: types.CallbackQuery):
@@ -196,8 +137,8 @@ async def temples_callback(callback_query: types.CallbackQuery):
         "[Помочь](https://example.com/temple2)\n\n"
         "⚠️ *Важно:* Пожертвования направляются напрямую храмам. Мы не принимаем и не обрабатываем платежи."
     )
-    back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=back)
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=back_keyboard)
 
 @dp.callback_query(lambda c: c.data == "support")
 async def support_callback(callback_query: types.CallbackQuery):
@@ -211,8 +152,8 @@ async def support_callback(callback_query: types.CallbackQuery):
         "Все средства пойдут на развитие бота, хостинг и обновления. "
         "Спасибо за вашу поддержку!"
     )
-    back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back)
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
 
 async def main():
     await dp.start_polling(bot)

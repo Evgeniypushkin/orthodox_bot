@@ -61,50 +61,44 @@ async def fetch_readings_from_url(date_str: str) -> str:
                 if resp.status != 200:
                     return f"Не удалось загрузить страницу. Ссылка: {url.replace('?json', '')}"
                 html = await resp.text()
-        except Exception as e:
+        except Exception:
             return f"Ошибка загрузки. Ссылка: {url.replace('?json', '')}"
 
     soup = BeautifulSoup(html, 'lxml')
 
-    # Находим все блоки чтений по классу days_book-title
-    title_divs = soup.find_all('div', class_='days_book-title')
-    if not title_divs:
+    # Ищем все h2 (заголовки книг)
+    headers = soup.find_all('h2')
+    if not headers:
         return f"Не найдены заголовки чтений. Ссылка: {url.replace('?json', '')}"
 
     result_parts = []
-    for title_div in title_divs:
-        # Заголовок (очищаем от ссылок внутри)
-        title_text = title_div.get_text(strip=True)
-
-        # Ищем следующий за заголовком div с классом tbl-content
-        content_div = title_div.find_next_sibling('div', class_='tbl-content')
-        if not content_div:
+    for i, h2 in enumerate(headers):
+        title = h2.get_text(strip=True)
+        if not title:
             continue
 
-        # Удаляем лишние элементы внутри content_div
-        for tag in content_div.find_all(['div', 'span'], class_=['langs', 'add-lang', 'parallel', 'number-header', 'column-header']):
-            tag.decompose()
-        # Удаляем все span с class="number-header__inner" и т.п.
-        for tag in content_div.find_all('div', class_='numbers-header'):
-            tag.decompose()
-        # Удаляем все кнопки "Заменить" и прочие
-        for tag in content_div.find_all(['ul', 'li'], class_=['langs', 'lang-link', 'replace-lang__panel']):
-            tag.decompose()
+        # Собираем все элементы после этого h2 до следующего h2
+        content_text = []
+        next_elem = h2.find_next_sibling()
+        while next_elem and next_elem.name != 'h2':
+            # Пропускаем элементы с мусорными классами
+            if next_elem.name == 'div':
+                classes = next_elem.get('class', [])
+                # Если это блок перевода, меню языков или служебный — пропускаем
+                if any(c in classes for c in ['langs', 'add-lang', 'number-header', 'column-header', 'numbers-header', 'parallel']):
+                    next_elem = next_elem.find_next_sibling()
+                    continue
+                # Удаляем вложенные мусорные элементы
+                for tag in next_elem.find_all(['div', 'span'], class_=['langs', 'add-lang', 'parallel', 'number-header', 'column-header', 'numbers-header']):
+                    tag.decompose()
+                text = next_elem.get_text(separator='\n', strip=True)
+                if text:
+                    content_text.append(text)
+            next_elem = next_elem.find_next_sibling()
 
-        # Получаем текст, заменяя <br> на переносы
-        for br in content_div.find_all('br'):
-            br.replace_with('\n')
-        content_text = content_div.get_text(separator='\n', strip=True)
-
-        # Убираем множественные переносы
-        content_text = re.sub(r'\n\s*\n', '\n\n', content_text)
-
-        # Если текст пустой – пропускаем
-        if not content_text:
-            continue
-
-        result_parts.append(f"*{title_text}*")
-        result_parts.append(content_text)
+        if content_text:
+            result_parts.append(f"*{title}*")
+            result_parts.append("\n\n".join(content_text))
 
     if not result_parts:
         return f"Не удалось извлечь тексты чтений. Ссылка: {url.replace('?json', '')}"

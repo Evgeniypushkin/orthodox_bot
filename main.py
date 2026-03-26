@@ -29,7 +29,7 @@ main_menu_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
         [InlineKeyboardButton(text="🙏 Молитвы", callback_data="prayers")],
         [InlineKeyboardButton(text="📖 Чтения дня", callback_data="reading")],
-        [InlineKeyboardButton(text="🙏 Подготовка к исповеди", callback_data="confession_prepare")]
+        [InlineKeyboardButton(text="🙏 Подготовка к исповеди", callback_data="confession_prepare")],
         [InlineKeyboardButton(text="🏛️ Храмы", callback_data="temples")],
         [InlineKeyboardButton(text="💝 Поддержать", callback_data="support")],
     ]

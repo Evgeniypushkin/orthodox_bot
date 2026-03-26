@@ -17,7 +17,7 @@ if not BOT_TOKEN:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ---------- Загружаем локальные данные ----------
+# ---------- Загрузка данных ----------
 def load_lives():
     with open("data/lives.json", "r", encoding="utf-8") as f:
         return json.load(f)
@@ -30,14 +30,21 @@ lives_data = load_lives()
 morning_prayers = load_prayer("morning_prayers.txt")
 evening_prayers = load_prayer("evening_prayers.txt")
 
-# ---------- Inline-клавиатура ----------
+# ---------- Клавиатуры ----------
 main_menu_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
         [InlineKeyboardButton(text="📖 Чтения дня", callback_data="reading")],
         [InlineKeyboardButton(text="🙏 Молитвы", callback_data="prayers")],
-        [InlineKeyboardButton(text="📅 Календарь", callback_data="calendar")],
         [InlineKeyboardButton(text="🏛️ Храмы", callback_data="temples")],
         [InlineKeyboardButton(text="💝 Поддержать", callback_data="support")],
+    ]
+)
+
+prayers_menu_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="🙏 Утренние молитвы", callback_data="morning_prayers")],
+        [InlineKeyboardButton(text="🌙 Вечерние молитвы", callback_data="evening_prayers")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
     ]
 )
 
@@ -45,7 +52,7 @@ main_menu_keyboard = InlineKeyboardMarkup(
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
     await message.answer(
-        "🛐 Выберите раздел:",
+        "🛐 Спутник верующего\nВыберите раздел:",
         reply_markup=main_menu_keyboard
     )
 
@@ -59,41 +66,49 @@ async def reading_callback(callback_query: types.CallbackQuery):
     
     if key in lives_data:
         saints = lives_data[key]
-        text_parts = []
+        parts = []
         for saint in saints:
             name = saint.get("name", "Святой")
-            life = saint.get("life", "Описание временно недоступно")
+            life = saint.get("life", "Житие не найдено")
             if len(life) > 1500:
                 life = life[:1500] + "..."
-            text_parts.append(f"📖 *{name}*\n\n{life}")
-        text = "\n\n---\n\n".join(text_parts)
+            parts.append(f"📖 *{name}*\n\n{life}")
+        text = "\n\n---\n\n".join(parts)
     else:
-        text = "На сегодня житий святых в базе нет. Загляните позже."
+        text = "На сегодня житий святых в базе нет."
     
-    await callback_query.message.answer(text, parse_mode="Markdown")
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
 
 @dp.callback_query(lambda c: c.data == "prayers")
-async def prayers_callback(callback_query: types.CallbackQuery):
+async def prayers_menu(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    text = (
-        f"🙏 *Утренние молитвы*\n\n{morning_prayers}\n\n"
-        f"🙏 *Вечерние молитвы*\n\n{evening_prayers}"
+    await callback_query.message.edit_text(
+        "Выберите молитвы:",
+        reply_markup=prayers_menu_keyboard
     )
-    if len(text) > 4000:
-        await callback_query.message.answer(f"🙏 *Утренние молитвы*\n\n{morning_prayers}", parse_mode="Markdown")
-        await callback_query.message.answer(f"🙏 *Вечерние молитвы*\n\n{evening_prayers}", parse_mode="Markdown")
-    else:
-        await callback_query.message.answer(text, parse_mode="Markdown")
 
-@dp.callback_query(lambda c: c.data == "calendar")
-async def calendar_callback(callback_query: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data == "morning_prayers")
+async def morning_prayers_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    text = (
-        "📅 *Православный календарь*\n\n"
-        "Подробный календарь с праздниками и постами будет добавлен позже.\n"
-        "Пока вы можете воспользоваться разделом «Чтения дня» для знакомства с житиями святых."
+    text = f"🙏 *Утренние молитвы*\n\n{morning_prayers}"
+    back_to_prayers = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_to_prayers)
+
+@dp.callback_query(lambda c: c.data == "evening_prayers")
+async def evening_prayers_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    text = f"🙏 *Вечерние молитвы*\n\n{evening_prayers}"
+    back_to_prayers = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_to_prayers)
+
+@dp.callback_query(lambda c: c.data == "back_to_main")
+async def back_to_main(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    await callback_query.message.edit_text(
+        "🛐 Спутник верующего\nВыберите раздел:",
+        reply_markup=main_menu_keyboard
     )
-    await callback_query.message.answer(text, parse_mode="Markdown")
 
 @dp.callback_query(lambda c: c.data == "temples")
 async def temples_callback(callback_query: types.CallbackQuery):
@@ -109,7 +124,8 @@ async def temples_callback(callback_query: types.CallbackQuery):
         "⚠️ *Важно:* Пожертвования направляются напрямую храмам. "
         "Мы не принимаем и не обрабатываем платежи."
     )
-    await callback_query.message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=back_keyboard)
 
 @dp.callback_query(lambda c: c.data == "support")
 async def support_callback(callback_query: types.CallbackQuery):
@@ -123,7 +139,8 @@ async def support_callback(callback_query: types.CallbackQuery):
         "Все средства пойдут на развитие бота, хостинг и обновления. "
         "Спасибо за вашу поддержку!"
     )
-    await callback_query.message.answer(text, parse_mode="Markdown")
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
 
 async def main():
     await dp.start_polling(bot)

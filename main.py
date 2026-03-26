@@ -31,6 +31,15 @@ def load_quotes():
     with open("data/quotes.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
+quotes = load_quotes()
+
+def get_quote_of_day():
+    today = datetime.now().strftime("%Y-%m-%d")
+    # Используем дату как seed для воспроизводимости
+    random.seed(today)
+    index = random.randint(0, len(quotes)-1)
+    return quotes[index]
+
 def load_calendar():
     with open("data/church_calendar_2026_2027.json", "r", encoding="utf-8") as f:
         return json.load(f)
@@ -43,13 +52,12 @@ calendar_data = load_calendar()
 # ---------- Клавиатуры ----------
 main_menu_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
-        [InlineKeyboardButton(text="📖 Чтения дня", callback_data="reading")],
         [InlineKeyboardButton(text="🙏 Молитвы", callback_data="prayers")],
         [InlineKeyboardButton(text="📅 Календарь", callback_data="calendar")],
+        [InlineKeyboardButton(text="✨ Цитата дня", callback_data="quote")],
+        [InlineKeyboardButton(text="📖 Чтения дня", callback_data="reading")],
         [InlineKeyboardButton(text="🙏 Подготовка к исповеди", callback_data="confession_prepare")],
-        [InlineKeyboardButton(text="📖 Цитата дня", callback_data="quote")],
-        [InlineKeyboardButton(text="🏛️ Храмы", callback_data="temples")],
-        [InlineKeyboardButton(text="💝 Поддержать", callback_data="support")],
+        [InlineKeyboardButton(text="💰 Пожертвовать", callback_data="donate_menu")],
     ]
 )
 
@@ -236,11 +244,23 @@ async def calendar_callback(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "quote")
 async def quote_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    # Выбираем случайную цитату из списка
-    quote = random.choice(quotes)
-    text = f"📖 *Цитата дня*\n\n{quote}"
+    quote = get_quote_of_day()
+    text = f"✨ *Цитата дня*\n\n{quote}"
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
     await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
+
+@dp.callback_query(lambda c: c.data == "donate_menu")
+async def donate_menu(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏛️ Помощь храмам", callback_data="temples")],
+        [InlineKeyboardButton(text="💝 Поддержать проект", callback_data="support")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    await callback_query.message.edit_text(
+        "Выберите направление пожертвования:",
+        reply_markup=keyboard
+    )
 
 # ---------- Общие ----------
 @dp.callback_query(lambda c: c.data == "back_to_main")

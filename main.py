@@ -92,15 +92,49 @@ async def prayers_menu(callback_query: types.CallbackQuery):
 async def morning_prayers_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
     text = f"🙏 *Утренние молитвы*\n\n{morning_prayers}"
-    back_to_prayers = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_to_prayers)
+    if len(text) > 4000:
+        # Разбиваем на части
+        parts = []
+        current_part = ""
+        for line in text.split('\n'):
+            if len(current_part) + len(line) + 1 > 4000:
+                parts.append(current_part)
+                current_part = line
+            else:
+                current_part += "\n" + line if current_part else line
+        if current_part:
+            parts.append(current_part)
+        # Отправляем первую часть с клавиатурой "Назад"
+        back_to_prayers = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
+        await callback_query.message.edit_text(parts[0], parse_mode="Markdown", reply_markup=back_to_prayers)
+        for part in parts[1:]:
+            await callback_query.message.answer(part, parse_mode="Markdown")
+    else:
+        back_to_prayers = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
+        await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_to_prayers)
 
 @dp.callback_query(lambda c: c.data == "evening_prayers")
 async def evening_prayers_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
     text = f"🙏 *Вечерние молитвы*\n\n{evening_prayers}"
-    back_to_prayers = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_to_prayers)
+    if len(text) > 4000:
+        parts = []
+        current_part = ""
+        for line in text.split('\n'):
+            if len(current_part) + len(line) + 1 > 4000:
+                parts.append(current_part)
+                current_part = line
+            else:
+                current_part += "\n" + line if current_part else line
+        if current_part:
+            parts.append(current_part)
+        back_to_prayers = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
+        await callback_query.message.edit_text(parts[0], parse_mode="Markdown", reply_markup=back_to_prayers)
+        for part in parts[1:]:
+            await callback_query.message.answer(part, parse_mode="Markdown")
+    else:
+        back_to_prayers = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="prayers")]])
+        await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_to_prayers)
 
 @dp.callback_query(lambda c: c.data == "back_to_main")
 async def back_to_main(callback_query: types.CallbackQuery):

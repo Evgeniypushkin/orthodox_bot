@@ -50,7 +50,12 @@ prayers_menu_keyboard = InlineKeyboardMarkup(
 readings_cache = {}
 CACHE_TTL = 3600
 
-async def fetch_readings_from_url(url: str) -> str:
+async def fetch_readings_from_url(date_str: str) -> str:
+    """
+    Парсит страницу days.pravoslavie.ru/readings/YYYY-MM-DD.html
+    и возвращает тексты Апостола и Евангелия.
+    """
+    url = f"https://days.pravoslavie.ru/readings/{date_str}.html"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -70,43 +75,33 @@ async def fetch_readings_from_url(url: str) -> str:
 
     soup = BeautifulSoup(html, 'lxml')
 
-    # Ищем все заголовки чтений
-    title_divs = soup.find_all('div', class_='days_book-title')
-    if not title_divs:
-        logging.warning(f"Не найдены заголовки чтений на странице {url}")
-        return f"Не удалось автоматически извлечь тексты. Пожалуйста, перейдите по ссылке и прочитайте чтения: {url}"
+    # Ищем блоки чтений
+    apostle_div = soup.find('div', class_='reading-apostle')
+    gospel_div = soup.find('div', class_='reading-gospel')
 
-    result_parts = []
-    for title_div in title_divs:
-        # Извлекаем текст заголовка (например, "Книга пророка Исаии")
-        title = title_div.get_text(strip=True)
-        if not title:
-            continue
+    parts = []
+    if apostle_div:
+        # Извлекаем текст, убирая лишние переводы строк
+        apostle_text = apostle_div.get_text(separator='\n', strip=True)
+        parts.append("*Апостол*")
+        parts.append(apostle_text)
+    if gospel_div:
+        gospel_text = gospel_div.get_text(separator='\n', strip=True)
+        parts.append("*Евангелие*")
+        parts.append(gospel_text)
 
-        # Ищем следующий после заголовка div с классом tbl-content
-        content_div = title_div.find_next_sibling('div', class_='tbl-content')
-        if not content_div:
-            # Может быть, контент в другом месте? Пропускаем
-            continue
+    if not parts:
+        # Возможно, есть только ветхозаветные чтения
+        # Пробуем найти любой блок с классом 'reading'
+        any_reading = soup.find('div', class_='reading')
+        if any_reading:
+            text = any_reading.get_text(separator='\n', strip=True)
+            parts.append("*Чтения дня*")
+            parts.append(text)
+        else:
+            return f"Не удалось извлечь тексты чтений. Вы можете прочитать их на сайте: {url}"
 
-        # Извлекаем текст из content_div
-        # Внутри могут быть строки с числами (стихами), но нас интересует полный текст
-        # Просто берём весь текст, убирая лишние переносы
-        text = content_div.get_text(separator='\n', strip=True)
-        # Чистим от множественных переносов
-        text = re.sub(r'\n\s*\n', '\n\n', text)
-
-        if not text:
-            continue
-
-        result_parts.append(f"*{title}*")
-        result_parts.append(text)
-        result_parts.append("")  # разделитель
-
-    full_text = "\n\n".join(result_parts).strip()
-    if not full_text:
-        return f"Не удалось извлечь тексты чтений. Вы можете прочитать их на сайте: {url}"
-
+    full_text = "\n\n".join(parts).strip()
     if len(full_text) > 4000:
         full_text = full_text[:4000] + "\n\n...(текст сокращён, полную версию смотрите по ссылке)"
     return full_text
@@ -135,7 +130,7 @@ async def reading_callback(callback_query: types.CallbackQuery):
     date_str = datetime.now().strftime("%Y-%m-%d")
     msg = await callback_query.message.edit_text("Загружаю чтения дня...")
     try:
-        text = await get_reading_text(date_str)
+        text = await fetch_readings_from_url(date_str)  # передаём дату
     except Exception:
         logging.exception("Ошибка при загрузке чтений")
         text = "Произошла ошибка при загрузке. Попробуйте позже."

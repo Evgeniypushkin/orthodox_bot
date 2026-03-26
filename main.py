@@ -69,57 +69,49 @@ async def fetch_readings_from_url(url: str) -> str:
             return f"Не удалось загрузить страницу. Ссылка: {url}"
 
     soup = BeautifulSoup(html, 'lxml')
+    # Найдём основную область с чтениями – часто это div с классом 'entry-content' или 'content'
+    main_content = soup.find('div', class_='entry-content') or soup.find('div', class_='content')
+    if not main_content:
+        main_content = soup
 
-    # Сначала ищем стандартные классы
-    reading_blocks = soup.find_all('div', class_='reading')
-    if not reading_blocks:
-        reading_blocks = soup.find_all('div', class_='bible-reading')
-    if not reading_blocks:
-        # Если нет, ищем блоки, содержащие заголовки "Апостол" или "Евангелие"
-        # Часто они находятся внутри <div class="reading-block"> или просто <div> с заголовком
-        reading_blocks = soup.find_all('div', class_='reading-block')
-        if not reading_blocks:
-            # Ещё вариант: ищем любые <div>, внутри которых есть <h3> с текстом "Апостол" или "Евангелие"
-            candidates = soup.find_all('div', recursive=True)
-            reading_blocks = []
-            for div in candidates:
-                h3 = div.find('h3')
-                if h3 and ('Апостол' in h3.get_text() or 'Евангелие' in h3.get_text()):
-                    reading_blocks.append(div)
+    # Ищем заголовки, которые начинают блоки чтений
+    headers = main_content.find_all(['h2', 'h3', 'h4'])
+    # Ключевые слова для чтений (можно расширять)
+    reading_keywords = ['Апостол', 'Евангелие', 'Книга', 'Бытие', 'Исход', 'Притчей', 'Исаии', 'Послание']
+    reading_blocks = []
+    for i, header in enumerate(headers):
+        header_text = header.get_text(strip=True)
+        if any(keyword in header_text for keyword in reading_keywords):
+            # Собираем все элементы после этого заголовка до следующего заголовка
+            block_elements = []
+            next_element = header.find_next_sibling()
+            while next_element:
+                if next_element.name in ['h2', 'h3', 'h4']:
+                    break
+                block_elements.append(next_element)
+                next_element = next_element.find_next_sibling()
+            if block_elements:
+                reading_blocks.append((header_text, block_elements))
 
     if not reading_blocks:
         logging.warning(f"Не найдены блоки чтений на странице {url}")
-        # Отправим пользователю ссылку на страницу, чтобы он мог прочитать вручную
         return f"Не удалось автоматически извлечь тексты. Пожалуйста, перейдите по ссылке и прочитайте чтения: {url}"
 
     result_parts = []
-    for block in reading_blocks:
-        # Ищем заголовок: может быть в <h3> или <div class="reading-title">
-        title_tag = block.find('h3') or block.find('div', class_='reading-title')
-        if title_tag:
-            title = title_tag.get_text(strip=True)
-            result_parts.append(f"*{title}*")
-        else:
-            # Если заголовка нет, пропускаем или ставим заглушку
-            continue
-
-        # Ищем текст чтения
-        text_block = block.find('div', class_='reading-text') or block
-        paragraphs = text_block.find_all('p')
-        if paragraphs:
-            text = "\n\n".join(p.get_text(strip=True) for p in paragraphs)
-        else:
-            text = text_block.get_text(strip=True)
-
-        # Очищаем текст от лишних пробелов и переносов
-        text = re.sub(r'\n\s*\n', '\n\n', text)
-        result_parts.append(text)
-        result_parts.append("")  # разделитель между чтениями
+    for title, elements in reading_blocks:
+        result_parts.append(f"*{title}*")
+        # Объединяем текст всех элементов блока
+        block_text = []
+        for elem in elements:
+            text = elem.get_text(strip=True)
+            if text:
+                block_text.append(text)
+        # Соединяем параграфы двойным переносом
+        full_block_text = "\n\n".join(block_text)
+        result_parts.append(full_block_text)
+        result_parts.append("")  # разделитель между блоками
 
     full_text = "\n\n".join(result_parts).strip()
-    if not full_text:
-        return f"Не удалось извлечь тексты чтений. Вы можете прочитать их на сайте: {url}"
-
     if len(full_text) > 4000:
         full_text = full_text[:4000] + "\n\n...(текст сокращён, полную версию смотрите по ссылке)"
     return full_text

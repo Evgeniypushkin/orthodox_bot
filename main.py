@@ -300,7 +300,7 @@ async def support_callback(callback_query: types.CallbackQuery):
         "Спасибо за вашу поддержку!"
     )
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
+    await callback_query.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=back_keyboard)
 
 async def main():
     await dp.start_polling(bot)

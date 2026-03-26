@@ -34,7 +34,6 @@ def load_prayer(file_name):
         return f.read()
 
 # readings_data = load_readings()   # можно закомментировать
-readings_data = {}  # временно
 calendar_data = load_calendar()
 morning_prayers = load_prayer("morning_prayers.txt")
 evening_prayers = load_prayer("evening_prayers.txt")

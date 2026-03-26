@@ -2,7 +2,8 @@ import os
 import asyncio
 import logging
 import json
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -17,24 +18,64 @@ if not BOT_TOKEN:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ---------- Загрузка молитв ----------
+# ---------- Загрузка данных ----------
 def load_prayers():
     with open("data/prayers.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
+def load_confession():
+    with open("data/confession.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def load_quotes():
+    with open("data/quotes.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def load_calendar():
+    with open("data/church_calendar_2026_2027.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
 prayers_data = load_prayers()
+confession_data = load_confession()
+quotes = load_quotes()
+calendar_data = load_calendar()
 
 # ---------- Клавиатуры ----------
 main_menu_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
-        [InlineKeyboardButton(text="🙏 Молитвы", callback_data="prayers")],
         [InlineKeyboardButton(text="📖 Чтения дня", callback_data="reading")],
+        [InlineKeyboardButton(text="🙏 Молитвы", callback_data="prayers")],
+        [InlineKeyboardButton(text="📅 Календарь", callback_data="calendar")],
         [InlineKeyboardButton(text="🙏 Подготовка к исповеди", callback_data="confession_prepare")],
+        [InlineKeyboardButton(text="📖 Цитата дня", callback_data="quote")],
         [InlineKeyboardButton(text="🏛️ Храмы", callback_data="temples")],
         [InlineKeyboardButton(text="💝 Поддержать", callback_data="support")],
     ]
 )
 
+# ---------- Обработчики ----------
+@dp.message(Command("start"))
+async def start_command(message: types.Message):
+    await message.answer(
+        "🛐 МОЛИТВОСЛОВ\nВыберите раздел:",
+        reply_markup=main_menu_keyboard
+    )
+
+@dp.callback_query(lambda c: c.data == "reading")
+async def reading_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    today = datetime.now().strftime("%Y-%m-%d")
+    url = f"https://azbyka.ru/biblia/days/{today}"
+    text = (
+        f"📖 *Чтения дня на {today}*\n\n"
+        f"Вы можете прочитать Апостол и Евангелие на сегодня по ссылке:\n"
+        f"{url}\n\n"
+        f"Также на этой странице доступны ветхозаветные чтения, если они положены по уставу."
+    )
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=back_keyboard)
+
+# ---------- Молитвы (уже есть, добавим функции, если ещё не) ----------
 def get_prayers_menu():
     keyboard = []
     for cat in prayers_data["categories"]:
@@ -58,119 +99,6 @@ def get_prayer_text(prayer_id):
             if prayer["id"] == prayer_id:
                 return prayer["text"]
     return "Молитва не найдена."
-
-# ---------- Обработчики ----------
-
-@dp.callback_query(lambda c: c.data == "confession_prepare")
-async def confession_menu(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Перечень грехов", callback_data="confession_sins")],
-        [InlineKeyboardButton(text="📖 Как исповедоваться", callback_data="confession_instruction")],
-        [InlineKeyboardButton(text="🙏 Молитвы перед исповедью", callback_data="confession_prayers")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
-    ])
-    await callback_query.message.edit_text(
-        "Подготовка к исповеди\n\n"
-        "Выберите раздел, который поможет вам собраться перед таинством покаяния.",
-        reply_markup=keyboard
-    )
-
-@dp.callback_query(lambda c: c.data == "confession_sins")
-async def confession_sins(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    try:
-        with open("data/confession.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        logging.error(f"Ошибка загрузки confession.json: {e}")
-        await callback_query.message.edit_text("Не удалось загрузить данные. Попробуйте позже.")
-        return
-    keyboard = []
-    for cat in data.get("categories", []):
-        keyboard.append([InlineKeyboardButton(text=cat["name"], callback_data=f"sins_cat_{cat['id']}")])
-    keyboard.append([InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")])
-    await callback_query.message.edit_text(
-        "Выберите категорию грехов для самоанализа:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
-    )
-
-@dp.callback_query(lambda c: c.data.startswith("sins_cat_"))
-async def sins_category(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    cat_id = callback_query.data.split("_", 2)[2]  # sins_cat_against_god -> against_god
-    try:
-        with open("data/confession.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        logging.error(f"Ошибка загрузки confession.json: {e}")
-        await callback_query.message.edit_text("Не удалось загрузить данные. Попробуйте позже.")
-        return
-    category = next((c for c in data.get("categories", []) if c.get("id") == cat_id), None)
-    if not category:
-        await callback_query.message.edit_text(f"Категория с id='{cat_id}' не найдена.")
-        return
-    sins_text = f"*{category['name']}*\n\n"
-    for sin in category.get("sins", []):
-        sins_text += f"• {sin}\n"
-    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_sins")]])
-    await callback_query.message.edit_text(sins_text, parse_mode="Markdown", reply_markup=back_keyboard)
-
-@dp.callback_query(lambda c: c.data == "confession_instruction")
-async def confession_instruction(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    try:
-        with open("data/confession.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        logging.error(f"Ошибка загрузки confession.json: {e}")
-        await callback_query.message.edit_text("Не удалось загрузить данные. Попробуйте позже.")
-        return
-    instruction = data.get("instruction", "Инструкция временно недоступна.")
-    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")]])
-    await callback_query.message.edit_text(instruction, parse_mode="Markdown", reply_markup=back_keyboard)
-
-@dp.callback_query(lambda c: c.data == "confession_prayers")
-async def confession_prayers(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    try:
-        with open("data/confession.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        logging.error(f"Ошибка загрузки confession.json: {e}")
-        await callback_query.message.edit_text("Не удалось загрузить данные. Попробуйте позже.")
-        return
-    prayers = data.get("prayers", [])
-    if not prayers:
-        text = "Молитвы временно отсутствуют."
-    elif len(prayers) == 1:
-        text = f"*{prayers[0]['title']}*\n\n{prayers[0]['text']}"
-    else:
-        # Для нескольких молитв можно показать первую (или сделать подменю)
-        text = f"*{prayers[0]['title']}*\n\n{prayers[0]['text']}\n\n---\n\nДругие молитвы будут добавлены позже."
-    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
-
-@dp.message(Command("start"))
-async def start_command(message: types.Message):
-    await message.answer(
-        "🛐 МОЛИТВОСЛОВ\nВыберите раздел:",
-        reply_markup=main_menu_keyboard
-    )
-
-@dp.callback_query(lambda c: c.data == "reading")
-async def reading_callback(callback_query: types.CallbackQuery):
-    await callback_query.answer()
-    today = datetime.now().strftime("%Y-%m-%d")
-    url = f"https://azbyka.ru/biblia/days/{today}"
-    text = (
-        f"📖 *Чтения дня на {today}*\n\n"
-        f"Вы можете прочитать Апостол и Евангелие на сегодня по ссылке:\n"
-        f"{url}\n\n"
-        f"Также на этой странице доступны ветхозаветные чтения, если они положены по уставу."
-    )
-    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=back_keyboard)
 
 @dp.callback_query(lambda c: c.data == "prayers")
 async def prayers_menu(callback_query: types.CallbackQuery):
@@ -197,23 +125,124 @@ async def prayer_category_callback(callback_query: types.CallbackQuery):
 async def prayer_text_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
     prayer_id = callback_query.data.split("_", 1)[1]
-    # Найдём категорию, чтобы кнопка "Назад" возвращала в список категории
     cat_id = None
+    prayer_title = ""
     for cat in prayers_data["categories"]:
         for prayer in cat["prayers"]:
             if prayer["id"] == prayer_id:
                 cat_id = cat["id"]
+                prayer_title = prayer["title"]
                 break
         if cat_id:
             break
     text = get_prayer_text(prayer_id)
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data=f"prayer_cat_{cat_id}")]])
     await callback_query.message.edit_text(
-        f"*{prayer['title']}*\n\n{text}",
+        f"*{prayer_title}*\n\n{text}",
         parse_mode="Markdown",
         reply_markup=back_keyboard
     )
 
+# ---------- Исповедь ----------
+@dp.callback_query(lambda c: c.data == "confession_prepare")
+async def confession_menu(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Перечень грехов", callback_data="confession_sins")],
+        [InlineKeyboardButton(text="📖 Как исповедоваться", callback_data="confession_instruction")],
+        [InlineKeyboardButton(text="🙏 Молитвы перед исповедью", callback_data="confession_prayers")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    await callback_query.message.edit_text(
+        "Подготовка к исповеди\n\n"
+        "Выберите раздел, который поможет вам собраться перед таинством покаяния.",
+        reply_markup=keyboard
+    )
+
+@dp.callback_query(lambda c: c.data == "confession_sins")
+async def confession_sins(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    keyboard = []
+    for cat in confession_data["categories"]:
+        keyboard.append([InlineKeyboardButton(text=cat["name"], callback_data=f"sins_cat_{cat['id']}")])
+    keyboard.append([InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")])
+    await callback_query.message.edit_text(
+        "Выберите категорию грехов для самоанализа:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+
+@dp.callback_query(lambda c: c.data.startswith("sins_cat_"))
+async def sins_category(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    cat_id = callback_query.data.split("_")[2]
+    category = next((c for c in confession_data["categories"] if c["id"] == cat_id), None)
+    if not category:
+        await callback_query.message.edit_text("Категория не найдена.")
+        return
+    sins_text = "*" + category["name"] + "*\n\n"
+    for sin in category["sins"]:
+        sins_text += f"• {sin}\n"
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_sins")]])
+    await callback_query.message.edit_text(sins_text, parse_mode="Markdown", reply_markup=back_keyboard)
+
+@dp.callback_query(lambda c: c.data == "confession_instruction")
+async def confession_instruction(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    instruction = confession_data["instruction"]
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")]])
+    await callback_query.message.edit_text(instruction, parse_mode="Markdown", reply_markup=back_keyboard)
+
+@dp.callback_query(lambda c: c.data == "confession_prayers")
+async def confession_prayers(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    prayers = confession_data["prayers"]
+    if prayers:
+        # Для простоты покажем первую молитву, можно сделать меню, если их несколько
+        text = f"*{prayers[0]['title']}*\n\n{prayers[0]['text']}"
+    else:
+        text = "Молитвы не найдены."
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
+
+# ---------- Календарь ----------
+@dp.callback_query(lambda c: c.data == "calendar")
+async def calendar_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    today = datetime.now().date()
+    # Ищем праздники на сегодня
+    holidays_today = []
+    for holiday in calendar_data.get("holidays", []):
+        if holiday.get("date") == today.strftime("%Y-%m-%d"):
+            holidays_today.append(holiday["name"])
+    # Определяем пост
+    fast_status = "Не постный день"
+    for fast in calendar_data.get("fasts", []):
+        start = datetime.strptime(fast["start"], "%Y-%m-%d").date()
+        end = datetime.strptime(fast["end"], "%Y-%m-%d").date()
+        if start <= today <= end:
+            fast_status = fast["name"]
+            break
+    # Дни памяти святых (можно добавить позже из отдельного файла, пока заглушка)
+    saints_today = "Информация о днях памяти святых будет добавлена позже."
+    text = f"📅 *Православный календарь на {today.strftime('%d.%m.%Y')}*\n\n"
+    if holidays_today:
+        text += "🎉 *Праздники:*\n" + "\n".join(holidays_today) + "\n\n"
+    text += f"🍽️ *Пост:* {fast_status}\n\n"
+    text += f"🙏 *Память святых:*\n{saints_today}"
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
+
+# ---------- Цитата дня ----------
+@dp.callback_query(lambda c: c.data == "quote")
+async def quote_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    # Выбираем случайную цитату из списка
+    quote = random.choice(quotes)
+    text = f"📖 *Цитата дня*\n\n{quote}"
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
+
+# ---------- Общие ----------
 @dp.callback_query(lambda c: c.data == "back_to_main")
 async def back_to_main(callback_query: types.CallbackQuery):
     await callback_query.answer()

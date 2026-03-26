@@ -1,3 +1,4 @@
+import re
 import os
 import asyncio
 import logging
@@ -58,43 +59,66 @@ async def fetch_readings_from_url(url: str) -> str:
             async with session.get(url, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
                     logging.error(f"Ошибка HTTP {resp.status} для {url}")
-                    return "Не удалось загрузить страницу."
+                    return f"Не удалось загрузить страницу. Вы можете прочитать чтения по ссылке: {url}"
                 html = await resp.text()
         except asyncio.TimeoutError:
             logging.error(f"Таймаут при запросе к {url}")
-            return "Сервер не отвечает. Попробуйте позже."
+            return f"Сервер не отвечает. Попробуйте позже или перейдите по ссылке: {url}"
         except Exception as e:
             logging.error(f"Ошибка запроса: {e}")
-            return "Не удалось загрузить страницу."
+            return f"Не удалось загрузить страницу. Ссылка: {url}"
 
     soup = BeautifulSoup(html, 'lxml')
+
+    # Сначала ищем стандартные классы
     reading_blocks = soup.find_all('div', class_='reading')
     if not reading_blocks:
         reading_blocks = soup.find_all('div', class_='bible-reading')
     if not reading_blocks:
+        # Если нет, ищем блоки, содержащие заголовки "Апостол" или "Евангелие"
+        # Часто они находятся внутри <div class="reading-block"> или просто <div> с заголовком
+        reading_blocks = soup.find_all('div', class_='reading-block')
+        if not reading_blocks:
+            # Ещё вариант: ищем любые <div>, внутри которых есть <h3> с текстом "Апостол" или "Евангелие"
+            candidates = soup.find_all('div', recursive=True)
+            reading_blocks = []
+            for div in candidates:
+                h3 = div.find('h3')
+                if h3 and ('Апостол' in h3.get_text() or 'Евангелие' in h3.get_text()):
+                    reading_blocks.append(div)
+
+    if not reading_blocks:
         logging.warning(f"Не найдены блоки чтений на странице {url}")
-        return "Не удалось найти тексты чтений на странице."
+        # Отправим пользователю ссылку на страницу, чтобы он мог прочитать вручную
+        return f"Не удалось автоматически извлечь тексты. Пожалуйста, перейдите по ссылке и прочитайте чтения: {url}"
 
     result_parts = []
     for block in reading_blocks:
+        # Ищем заголовок: может быть в <h3> или <div class="reading-title">
         title_tag = block.find('h3') or block.find('div', class_='reading-title')
         if title_tag:
             title = title_tag.get_text(strip=True)
             result_parts.append(f"*{title}*")
         else:
-            result_parts.append("*Чтение*")
+            # Если заголовка нет, пропускаем или ставим заглушку
+            continue
+
+        # Ищем текст чтения
         text_block = block.find('div', class_='reading-text') or block
         paragraphs = text_block.find_all('p')
         if paragraphs:
             text = "\n\n".join(p.get_text(strip=True) for p in paragraphs)
         else:
             text = text_block.get_text(strip=True)
+
+        # Очищаем текст от лишних пробелов и переносов
+        text = re.sub(r'\n\s*\n', '\n\n', text)
         result_parts.append(text)
-        result_parts.append("")
+        result_parts.append("")  # разделитель между чтениями
 
     full_text = "\n\n".join(result_parts).strip()
     if not full_text:
-        return "Не удалось извлечь тексты чтений."
+        return f"Не удалось извлечь тексты чтений. Вы можете прочитать их на сайте: {url}"
 
     if len(full_text) > 4000:
         full_text = full_text[:4000] + "\n\n...(текст сокращён, полную версию смотрите по ссылке)"

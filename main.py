@@ -1,12 +1,9 @@
-import re
 import os
 import asyncio
 import logging
 import time
 from datetime import datetime
 
-import aiohttp
-from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

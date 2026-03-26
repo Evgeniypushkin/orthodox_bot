@@ -60,6 +60,79 @@ def get_prayer_text(prayer_id):
     return "Молитва не найдена."
 
 # ---------- Обработчики ----------
+
+@dp.callback_query(lambda c: c.data == "confession_prepare")
+async def confession_menu(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    # Клавиатура для подготовки к исповеди
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Перечень грехов", callback_data="confession_sins")],
+        [InlineKeyboardButton(text="📖 Как исповедоваться", callback_data="confession_instruction")],
+        [InlineKeyboardButton(text="🙏 Молитвы перед исповедью", callback_data="confession_prayers")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    await callback_query.message.edit_text(
+        "Подготовка к исповеди\n\n"
+        "Выберите раздел, который поможет вам собраться перед таинством покаяния.",
+        reply_markup=keyboard
+    )
+
+@dp.callback_query(lambda c: c.data == "confession_sins")
+async def confession_sins(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    # Загружаем данные
+    with open("data/confession.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    # Создаём клавиатуру с категориями грехов
+    keyboard = []
+    for cat in data["categories"]:
+        keyboard.append([InlineKeyboardButton(text=cat["name"], callback_data=f"sins_cat_{cat['id']}")])
+    keyboard.append([InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")])
+    await callback_query.message.edit_text(
+        "Выберите категорию грехов для самоанализа:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+
+@dp.callback_query(lambda c: c.data.startswith("sins_cat_"))
+async def sins_category(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    cat_id = callback_query.data.split("_")[2]
+    with open("data/confession.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    category = next((c for c in data["categories"] if c["id"] == cat_id), None)
+    if not category:
+        await callback_query.message.edit_text("Категория не найдена.")
+        return
+    sins_text = "*" + category["name"] + "*\n\n"
+    for sin in category["sins"]:
+        sins_text += f"• {sin}\n"
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_sins")]])
+    await callback_query.message.edit_text(sins_text, parse_mode="Markdown", reply_markup=back_keyboard)
+
+@dp.callback_query(lambda c: c.data == "confession_instruction")
+async def confession_instruction(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    with open("data/confession.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    instruction = data["instruction"]
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")]])
+    await callback_query.message.edit_text(instruction, parse_mode="Markdown", reply_markup=back_keyboard)
+
+@dp.callback_query(lambda c: c.data == "confession_prayers")
+async def confession_prayers(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    with open("data/confession.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    # Можно показать список молитв (если их несколько) или сразу текст
+    prayers = data["prayers"]
+    if len(prayers) == 1:
+        text = f"*{prayers[0]['title']}*\n\n{prayers[0]['text']}"
+    else:
+        # Если несколько, можно сделать подменю, но пока просто первую
+        text = f"*{prayers[0]['title']}*\n\n{prayers[0]['text']}"
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="confession_prepare")]])
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
+
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
     await message.answer(

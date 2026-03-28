@@ -216,29 +216,43 @@ async def confession_prayers(callback_query: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "calendar")
 async def calendar_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    today = datetime.now().date()
-    # Ищем праздники на сегодня
-    holidays_today = []
-    for holiday in calendar_data.get("holidays", []):
-        if holiday.get("date") == today.strftime("%Y-%m-%d"):
-            holidays_today.append(holiday["name"])
-    # Определяем пост
-    fast_status = "Не постный день"
-    for fast in calendar_data.get("fasts", []):
-        start = datetime.strptime(fast["start"], "%Y-%m-%d").date()
-        end = datetime.strptime(fast["end"], "%Y-%m-%d").date()
-        if start <= today <= end:
-            fast_status = fast["name"]
-            break
-    # Дни памяти святых (можно добавить позже из отдельного файла, пока заглушка)
-    saints_today = "Информация о днях памяти святых будет добавлена позже."
-    text = f"📅 *Православный календарь на {today.strftime('%d.%m.%Y')}*\n\n"
-    if holidays_today:
-        text += "🎉 *Праздники:*\n" + "\n".join(holidays_today) + "\n\n"
-    text += f"🍽️ *Пост:* {fast_status}\n\n"
-    text += f"🙏 *Память святых:*\n{saints_today}"
-    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with open("data/church_calendar_2026_2027.json", "r", encoding="utf-8") as f:
+            cal = json.load(f)
+    except FileNotFoundError:
+        text = "Файл календаря не найден."
+        back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+        await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back)
+        return
+
+    if today not in cal:
+        text = "На сегодня данные отсутствуют."
+    else:
+        data = cal[today]
+        parts = []
+        if data.get("holidays"):
+            parts.append("🕊️ *Праздники*")
+            parts.extend(data["holidays"])
+        if data.get("fasts"):
+            parts.append("🍽️ *Пост*")
+            parts.extend(data["fasts"])
+        if data.get("saints"):
+            parts.append("📖 *Святые дня*")
+            parts.extend(data["saints"])
+        if data.get("services"):
+            parts.append("⛪ *Службы*")
+            parts.extend(data["services"])
+        if data.get("canons"):
+            parts.append("📜 *Каноны и акафисты*")
+            parts.extend(data["canons"])
+        if not parts:
+            text = "На сегодня нет особых событий."
+        else:
+            text = "\n\n".join(parts)
+
+    back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=back)
 
 # ---------- Цитата дня ----------
 @dp.callback_query(lambda c: c.data == "quote")

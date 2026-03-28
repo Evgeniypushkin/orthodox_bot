@@ -223,15 +223,20 @@ async def confession_prayers(callback_query: types.CallbackQuery):
     await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
 
 # ---------- Календарь ----------
-def clean_text(text: str) -> str:
-    """Убирает лишние переносы и пробелы, оставляя только один перенос между абзацами."""
-    # Удаляем все лишние пробелы в начале и конце
-    text = text.strip()
-    # Заменяем множественные переносы на два (чтобы сохранить разделение абзацев)
-    import re
-    text = re.sub(r'\n\s*\n', '\n\n', text)
-    # Если текст стал слишком большим, обрезаем (но оставим для ссылок)
-    return text
+from bs4 import BeautifulSoup
+import re
+
+def clean_text(html):
+    """Очищает HTML от лишних тегов и лишних переносов строк."""
+    soup = BeautifulSoup(html, 'html.parser')
+    # Удаляем все теги, кроме <a>
+    for tag in soup.find_all():
+        if tag.name != 'a':
+            tag.unwrap()
+    text = str(soup)
+    # Убираем множественные переносы строк (более 2 подряд)
+    text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
+    return text.strip()
 
 @dp.callback_query(lambda c: c.data == "calendar")
 async def calendar_callback(callback_query: types.CallbackQuery):
@@ -278,18 +283,15 @@ async def calendar_callback(callback_query: types.CallbackQuery):
             for c in data["canons"]:
                 parts.append(clean_text(c))
 
-        # Удаляем пустые строки в parts (после очистки могут стать пустыми)
-        parts = [p for p in parts if p and p.strip()]
+        # Собираем текст, объединяя пустыми строками, но удаляя лишние переносы
+        full_text = "\n\n".join(parts)
+        # Финальная чистка от многократных переносов
+        full_text = re.sub(r'\n\s*\n\s*\n', '\n\n', full_text)
+        text = full_text if len(parts) > 1 else f"📅 *Календарь на {today}*\n\nНа сегодня нет особых событий."
 
-        if len(parts) == 1:
-            text = f"📅 *Календарь на {today}*\n\nНа сегодня нет особых событий."
-        else:
-            # Объединяем с двумя переносами между разделами
-            text = "\n\n".join(parts)
-
-    # Отключаем предпросмотр ссылок
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    await callback_query.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=back_keyboard)
+    # Отправляем в режиме HTML (ссылки будут кликабельны)
+    await callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=back_keyboard)
 
 # ---------- Цитата дня ----------
 @dp.callback_query(lambda c: c.data == "quote")

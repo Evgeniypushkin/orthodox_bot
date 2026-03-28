@@ -8,6 +8,15 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from bs4 import BeautifulSoup
+
+def clean_html(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    # Удаляем все теги, кроме <a>
+    for tag in soup.find_all():
+        if tag.name != 'a':
+            tag.unwrap()
+    return str(soup)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -225,6 +234,11 @@ async def calendar_callback(callback_query: types.CallbackQuery):
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
         await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back)
         return
+    except json.JSONDecodeError as e:
+        text = f"📅 *Календарь*\n\nОшибка в файле календаря: {e}"
+        back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+        await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back)
+        return
 
     if today not in cal:
         text = f"📅 *Календарь на {today}*\n\nДанные отсутствуют."
@@ -233,20 +247,25 @@ async def calendar_callback(callback_query: types.CallbackQuery):
         parts = [f"📅 *Календарь на {today}*"]
         if data.get("holidays"):
             parts.append("🕊️ *Праздники*")
-            parts.extend(data["holidays"])
+            for h in data["holidays"]:
+                parts.append(clean_html(h))
         if data.get("fasts"):
             parts.append("🍽️ *Пост*")
-            parts.extend(data["fasts"])
+            for f in data["fasts"]:
+                parts.append(clean_html(f))
         if data.get("saints"):
             parts.append("📖 *Святые дня*")
-            parts.extend(data["saints"])
+            for s in data["saints"]:
+                parts.append(clean_html(s))
         if data.get("services"):
             parts.append("⛪ *Службы*")
-            parts.extend(data["services"])
+            for sv in data["services"]:
+                parts.append(clean_html(sv))
         if data.get("canons"):
             parts.append("📜 *Каноны и акафисты*")
-            parts.extend(data["canons"])
-        if not parts[1:]:
+            for c in data["canons"]:
+                parts.append(clean_html(c))
+        if len(parts) == 1:
             text = f"📅 *Календарь на {today}*\n\nНа сегодня нет особых событий."
         else:
             text = "\n\n".join(parts)

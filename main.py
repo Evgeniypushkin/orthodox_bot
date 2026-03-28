@@ -221,16 +221,16 @@ async def calendar_callback(callback_query: types.CallbackQuery):
         with open("data/church_calendar_2026_2027.json", "r", encoding="utf-8") as f:
             cal = json.load(f)
     except FileNotFoundError:
-        text = "Файл календаря не найден."
+        text = "📅 *Календарь*\n\nФайл календаря не найден. Пожалуйста, загрузите его в папку data."
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
         await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back)
         return
 
     if today not in cal:
-        text = "На сегодня данные отсутствуют."
+        text = f"📅 *Календарь на {today}*\n\nДанные отсутствуют."
     else:
         data = cal[today]
-        parts = []
+        parts = [f"📅 *Календарь на {today}*"]
         if data.get("holidays"):
             parts.append("🕊️ *Праздники*")
             parts.extend(data["holidays"])
@@ -246,13 +246,13 @@ async def calendar_callback(callback_query: types.CallbackQuery):
         if data.get("canons"):
             parts.append("📜 *Каноны и акафисты*")
             parts.extend(data["canons"])
-        if not parts:
-            text = "На сегодня нет особых событий."
+        if not parts[1:]:
+            text = f"📅 *Календарь на {today}*\n\nНа сегодня нет особых событий."
         else:
             text = "\n\n".join(parts)
 
-    back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    await callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=back)
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
+    await callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=back_keyboard)
 
 # ---------- Цитата дня ----------
 @dp.callback_query(lambda c: c.data == "quote")

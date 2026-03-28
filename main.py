@@ -223,19 +223,29 @@ async def confession_prayers(callback_query: types.CallbackQuery):
     await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_keyboard)
 
 # ---------- Календарь ----------
-from bs4 import BeautifulSoup
-import re
-
 def clean_text(html):
-    """Очищает HTML от лишних тегов и лишних переносов строк."""
     soup = BeautifulSoup(html, 'html.parser')
     # Удаляем все теги, кроме <a>
     for tag in soup.find_all():
         if tag.name != 'a':
             tag.unwrap()
+    # Получаем текст
     text = str(soup)
-    # Убираем множественные переносы строк (более 2 подряд)
-    text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
+    # Заменяем любые последовательности из 2+ переносов на 2 переноса
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+    # Убираем переносы в начале и конце
+    return text.strip()
+
+from bs4 import BeautifulSoup
+import re
+
+def clean_text(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    for tag in soup.find_all():
+        if tag.name != 'a':
+            tag.unwrap()
+    text = str(soup)
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
     return text.strip()
 
 @dp.callback_query(lambda c: c.data == "calendar")
@@ -265,33 +275,40 @@ async def calendar_callback(callback_query: types.CallbackQuery):
         if data.get("holidays"):
             parts.append("🕊️ *Праздники*")
             for h in data["holidays"]:
-                parts.append(clean_text(h))
+                cleaned = clean_text(h)
+                if cleaned:
+                    parts.append(cleaned)
         if data.get("fasts"):
             parts.append("🍽️ *Пост*")
             for f in data["fasts"]:
-                parts.append(clean_text(f))
+                cleaned = clean_text(f)
+                if cleaned:
+                    parts.append(cleaned)
         if data.get("saints"):
             parts.append("📖 *Святые дня*")
             for s in data["saints"]:
-                parts.append(clean_text(s))
+                cleaned = clean_text(s)
+                if cleaned:
+                    parts.append(cleaned)
         if data.get("services"):
             parts.append("⛪ *Службы*")
             for sv in data["services"]:
-                parts.append(clean_text(sv))
+                cleaned = clean_text(sv)
+                if cleaned:
+                    parts.append(cleaned)
         if data.get("canons"):
             parts.append("📜 *Каноны и акафисты*")
             for c in data["canons"]:
-                parts.append(clean_text(c))
+                cleaned = clean_text(c)
+                if cleaned:
+                    parts.append(cleaned)
 
-        # Собираем текст, объединяя пустыми строками, но удаляя лишние переносы
         full_text = "\n\n".join(parts)
-        # Финальная чистка от многократных переносов
-        full_text = re.sub(r'\n\s*\n\s*\n', '\n\n', full_text)
+        full_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', full_text)
         text = full_text if len(parts) > 1 else f"📅 *Календарь на {today}*\n\nНа сегодня нет особых событий."
 
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]])
-    # Отправляем в режиме HTML (ссылки будут кликабельны)
-    await callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=back_keyboard)
+    await callback_query.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_keyboard)
 
 # ---------- Цитата дня ----------
 @dp.callback_query(lambda c: c.data == "quote")
